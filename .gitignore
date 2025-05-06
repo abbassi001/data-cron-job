@@ -1,0 +1,29 @@
+# Ignorer les fichiers de données brutes (trop volumineux)
+data/raw/*
+!data/raw/.gitkeep
+
+# Ignorer les fichiers temporaires
+*.tmp
+*.temp
+
+# Ignorer les fichiers de log
+logs/*
+!logs/.gitkeep
+
+# Ignorer les fichiers de configuration locale
+config.local.sh
+
+# Ignorer les fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Ignorer l'environnement virtuel
+venv/
+env/
+.env/
+
+# Ignorer les fichiers système
+.DS_Store
+Thumbs.db

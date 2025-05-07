@@ -45,8 +45,7 @@ LOG_FILE="$LOG_DIR/complet_$DATE.log"
 EMAIL="abbassiadamou55@gmail.com" # À modifier avec votre email
 
 # Configuration Discord - URL du webhook (à modifier avec votre URL)
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/https://discord.com/api/webhooks/1369668625744662669/Vj-FfURhiuzXR7qD_kXIaw8oAl_-A41L8spsGnCdAZ2IKYSVgeXHeJ4f_YDA2at7-cC0"
-
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1369668625744662669/Vj-FfURhiuzXR7qD_kXIaw8oAl_-A41L8spsGnCdAZ2IKYSVgeXHeJ4f_YDA2at7-cC0"
 # Vérifier que le script est exécuté depuis le répertoire du projet
 cd "$PROJECT_DIR" || {
   echo "Erreur: Impossible d'accéder au répertoire du projet: $PROJECT_DIR"

@@ -1,0 +1,23 @@
+==========================================================
+           RÉSUMÉ DU TRAITEMENT DE DONNÉES
+==========================================================
+📅 Date d'exécution: 2025-05-07 à 14:30:43
+👤 Exécuté par: abbassy
+
+📊 STATISTIQUES:
+----------------------------------------------------------
+📥 Fichiers bruts téléchargés:       0
+🧹 Fichiers traités générés:         2
+📈 Graphiques générés:               1
+📄 Rapport principal:                /home/abbassy/data-cron-job/data/reports/rapport_2025-05-07.html
+
+📂 EMPLACEMENTS:
+----------------------------------------------------------
+📊 Données brutes:                   /home/abbassy/data-cron-job/data/raw
+📈 Données traitées:                 /home/abbassy/data-cron-job/data/processed
+📑 Rapports et graphiques:           /home/abbassy/data-cron-job/data/reports
+📝 Logs:                             /home/abbassy/data-cron-job/logs
+
+Pour consulter le rapport complet, ouvrez:
+/home/abbassy/data-cron-job/data/reports/rapport_2025-05-07.html
+==========================================================

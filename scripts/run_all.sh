@@ -951,20 +951,22 @@ generate_enhanced_report() {
     echo "=== ÉTAPE 3: GÉNÉRATION DU RAPPORT AVANCÉ ===" | tee -a "$LOG_FILE"
     
     # Vérifier si le rapport a été généré par le script Python
-    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_advanced_$DATE.html")
-    
-    if [ -n "$REPORT_HTML" ]; then
-        echo "✅ Rapport avancé généré avec succès: $REPORT_HTML" | tee -a "$LOG_FILE"
-    else
-        echo "⚠️ Rapport avancé non trouvé, recherche d'un rapport standard..." | tee -a "$LOG_FILE"
-        REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
-        
-        if [ -n "$REPORT_HTML" ]; then
-            echo "✅ Rapport standard trouvé: $REPORT_HTML" | tee -a "$LOG_FILE"
-        else
-            handle_error "Rapport" "Aucun rapport n'a été généré"
-        fi
-    fi
+# Remplacer la ligne qui recherche le rapport 
+# Probablement quelque chose comme: REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+
+# Par cette version qui recherche les deux types de rapports:
+REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_avance_$DATE.html")
+
+if [ -z "$REPORT_HTML" ] || [ ! -f "$REPORT_HTML" ]; then
+    echo "⚠️ Rapport avancé non trouvé, recherche d'un rapport standard..." | tee -a "$LOG_FILE"
+    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+fi
+
+if [ -z "$REPORT_HTML" ] || [ ! -f "$REPORT_HTML" ]; then
+    handle_error "Rapport" "Aucun rapport n'a été généré"
+else
+    echo "✅ Rapport trouvé: $REPORT_HTML" | tee -a "$LOG_FILE"
+fi
     
     # Compter les visualisations générées
     VIZ_COUNT=$(find "$VISUALIZATION_DIR" -type f -name "*.png" -mtime -1 | wc -l)

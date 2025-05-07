@@ -201,20 +201,106 @@ def process_json(file_path, output_prefix):
         return {"error": str(e)}
 
 def generate_report(results):
-    """Génère un rapport global de traitement."""
-    report = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "files_processed": len(results),
-        "results": results
-    }
+    """Génère un rapport simple en HTML avec images intégrées."""
+    try:
+        # Créer un résumé en HTML
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Rapport de traitement des données - {today}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #2c3e50; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                .error {{ color: red; }}
+                .chart-container {{ display: flex; flex-wrap: wrap; justify-content: space-around; }}
+                .chart {{ margin: 20px; border: 1px solid #ddd; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+                img {{ max-width: 100%; height: auto; }}
+            </style>
+        </head>
+        <body>
+            <h1>Rapport de traitement des données - {today}</h1>
+            <p>Nombre de fichiers traités: {len(results)}</p>
+            
+            <h2>Résultats par fichier</h2>
+            <table>
+                <tr>
+                    <th>Source</th>
+                    <th>Lignes</th>
+                    <th>Colonnes</th>
+                    <th>Statut</th>
+                </tr>
+        """
+        
+        for result in results:
+            source = result.get("fichier", "").split("/")[-1].split("_")[0]
+            if "erreur" in result:
+                html += f"""
+                <tr class="error">
+                    <td>{source}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>Erreur: {result["erreur"]}</td>
+                </tr>
+                """
+            else:
+                html += f"""
+                <tr>
+                    <td>{source}</td>
+                    <td>{result.get("lignes", "-")}</td>
+                    <td>{result.get("colonnes", "-")}</td>
+                    <td>Succès</td>
+                </tr>
+                """
+        
+        html += """
+            </table>
+            
+            <h2>Graphiques générés</h2>
+            <p>Voici les graphiques générés pendant l'analyse:</p>
+            <div class="chart-container">
+        """
+        
+        # Lister et inclure les graphiques directement
+        charts = list(REPORT_DIR.glob(f"*_chart.png"))
+        
+        for chart_file in charts:
+            chart_name = chart_file.name
+            source = chart_name.split("_")[0]
+            
+            html += f"""
+            <div class="chart">
+                <h3>{source} - {chart_name}</h3>
+                <img src="{chart_name}" alt="{chart_name}" />
+            </div>
+            """
+        
+        html += """
+            </div>
+            
+            <p>Rapport généré automatiquement le """ + datetime.datetime.now().strftime("%Y-%m-%d à %H:%M:%S") + """</p>
+        </body>
+        </html>
+        """
+        
+        # Enregistrer le rapport HTML
+        report_file = REPORT_DIR / f"rapport_{today}.html"
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(html)
+        
+        logger.info(f"Rapport HTML généré: {report_file}")
+        return report_file
     
-    report_file = REPORT_DIR / f"report_{today}.json"
-    with open(report_file, 'w') as f:
-        json.dump(report, f, indent=2)
+    except Exception as e:
+        logger.error(f"Erreur lors de la génération du rapport: {str(e)}")
+        return None
     
-    logger.info(f"Rapport global enregistré dans {report_file}")
-    return report_file
-
+    
 def main():
     """Fonction principale."""
     logger.info("=== Début du traitement des données ===")

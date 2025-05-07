@@ -5,11 +5,11 @@
 # ============================================================
 # Ce script unique lance l'ensemble du processus :
 # 1. Configuration initiale
-# 2. Téléchargement des données
-# 3. Traitement et analyse des données
-# 4. Génération de rapports
+# 2. Téléchargement massif de données
+# 3. Traitement et analyse avancée des données
+# 4. Génération de rapports avec visualisations
 # 5. Versionning Git
-# 6. Envoi de notifications Discord avec rapport
+# 6. Envoi de notifications Discord avec graphiques
 # ============================================================
 
 # Fonction pour afficher un texte en figlet si disponible
@@ -27,7 +27,7 @@ show_figlet() {
 # Afficher le titre du projet
 show_figlet "Data Process"
 echo "============================================================"
-echo "  SYSTÈME AUTOMATISÉ DE TRAITEMENT DE DONNÉES OUVERTES"
+echo "  SYSTÈME AVANCÉ DE TRAITEMENT DE DONNÉES MASSIVES"
 echo "============================================================"
 echo ""
 
@@ -38,9 +38,11 @@ DATA_DIR="$PROJECT_DIR/data"
 RAW_DIR="$DATA_DIR/raw"
 PROCESSED_DIR="$DATA_DIR/processed"
 REPORT_DIR="$DATA_DIR/reports"
+VISUALIZATION_DIR="$DATA_DIR/visualizations"
 LOG_DIR="$PROJECT_DIR/logs"
 DATE=$(date +%Y-%m-%d)
 LOG_FILE="$LOG_DIR/complet_$DATE.log"
+EMAIL="abbassiadamou55@gmail.com" # À modifier avec votre email
 
 # Configuration Discord - URL du webhook
 DISCORD_WEBHOOK="https://discord.com/api/webhooks/1369668625744662669/Vj-FfURhiuzXR7qD_kXIaw8oAl_-A41L8spsGnCdAZ2IKYSVgeXHeJ4f_YDA2at7-cC0"
@@ -53,7 +55,7 @@ cd "$PROJECT_DIR" || {
 
 # === INITIALISATION ===
 # Créer les répertoires nécessaires
-mkdir -p "$RAW_DIR" "$PROCESSED_DIR" "$REPORT_DIR" "$LOG_DIR"
+mkdir -p "$RAW_DIR" "$PROCESSED_DIR" "$REPORT_DIR" "$VISUALIZATION_DIR" "$LOG_DIR"
 
 # Initialiser le journal
 echo "===== DÉBUT DU PROCESSUS COMPLET: $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a "$LOG_FILE"
@@ -105,7 +107,26 @@ else
     echo "✅ Matplotlib installé" | tee -a "$LOG_FILE"
 fi
 
-# Vérifier requests pour Discord
+python3 -c "import seaborn" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ Seaborn non installé. Installation en cours..." | tee -a "$LOG_FILE"
+    pip install seaborn || {
+        echo "❌ Échec de l'installation de seaborn. Les visualisations seront limitées." | tee -a "$LOG_FILE"
+    }
+else
+    echo "✅ Seaborn installé" | tee -a "$LOG_FILE"
+fi
+
+python3 -c "import scipy" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ SciPy non installé. Installation en cours..." | tee -a "$LOG_FILE"
+    pip install scipy || {
+        echo "❌ Échec de l'installation de scipy. Certaines analyses statistiques seront limitées." | tee -a "$LOG_FILE"
+    }
+else
+    echo "✅ SciPy installé" | tee -a "$LOG_FILE"
+fi
+
 python3 -c "import requests" 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "❌ Requests non installé. Installation en cours..." | tee -a "$LOG_FILE"
@@ -116,205 +137,472 @@ else
     echo "✅ Requests installé" | tee -a "$LOG_FILE"
 fi
 
-# Vérifier PIL pour la création d'images
-python3 -c "from PIL import Image" 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "⚠️ PIL/Pillow non installé. Installation en cours..." | tee -a "$LOG_FILE"
-    pip install pillow || {
-        echo "⚠️ Échec de l'installation de PIL/Pillow. Les images ne seront pas générées." | tee -a "$LOG_FILE"
-    }
-else
-    echo "✅ PIL/Pillow installé" | tee -a "$LOG_FILE"
-fi
-
-# Vérifier figlet (optionnel)
-if ! command -v figlet &> /dev/null; then
-    echo "ℹ️ Figlet n'est pas installé. Les bannières seront simplifiées." | tee -a "$LOG_FILE"
-    echo "ℹ️ Pour installer figlet : sudo apt-get install figlet (Debian/Ubuntu)"
-fi
-
 # === FONCTIONS UTILITAIRES ===
-# Script Python pour envoyer des notifications Discord avec rapport
-create_discord_report_script() {
-    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord_with_report.py"
+# Fonction pour envoyer une notification Discord avec graphiques
+send_discord_notification() {
+    local message="$1"
     
-    cat > "$DISCORD_SCRIPT" << 'EOF'
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import sys
-import os
-import json
-import requests
-from datetime import datetime
-
-def read_report_content(report_path):
-    """
-    Lit le contenu d'un rapport HTML et extrait les éléments clés
-    """
-    try:
-        with open(report_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        # Extraire les informations pertinentes
-        # Ceci est une version simplifiée - vous pourriez avoir besoin d'un parsing HTML plus avancé
-        summary = []
-        
-        # Extraire le nombre de fichiers traités
-        if 'Nombre de fichiers traités:' in content:
-            start = content.find('Nombre de fichiers traités:')
-            end = content.find('</p>', start)
-            if start > 0 and end > start:
-                file_count = content[start:end].split(':')[1].strip()
-                summary.append(f"Fichiers traités: {file_count}")
-        
-        # Extraire les graphiques générés
-        if '<h2>Graphiques générés</h2>' in content:
-            start = content.find('<h2>Graphiques générés</h2>')
-            list_start = content.find('<ul>', start)
-            list_end = content.find('</ul>', list_start)
-            
-            if list_start > 0 and list_end > list_start:
-                graphs_list = content[list_start:list_end]
-                graphs = []
-                
-                start_idx = 0
-                while True:
-                    li_start = graphs_list.find('<li>', start_idx)
-                    if li_start == -1:
-                        break
-                    li_end = graphs_list.find('</li>', li_start)
-                    if li_end == -1:
-                        break
-                    
-                    graph_name = graphs_list[li_start+4:li_end].strip()
-                    graphs.append(graph_name)
-                    start_idx = li_end
-                
-                if graphs:
-                    summary.append(f"Graphiques: {', '.join(graphs)}")
-        
-        # Si on n'a pas pu extraire d'infos, retourner un message par défaut
-        if not summary:
-            return "Rapport HTML généré. Consultez le fichier pour plus de détails."
-        
-        return "\n".join(summary)
-        
-    except Exception as e:
-        print(f"⚠️ Erreur lors de la lecture du rapport: {str(e)}")
-        return "Rapport HTML généré, mais impossible d'extraire le contenu."
-
-def send_discord_message(webhook_url, message, title=None, report_path=None):
-    """
-    Envoie un message à Discord via un webhook, avec un résumé du rapport si disponible
+    echo "🎮 Tentative d'envoi de notification Discord..." | tee -a "$LOG_FILE"
     
-    Args:
-        webhook_url (str): URL du webhook Discord
-        message (str): Le message à envoyer
-        title (str, optional): Titre du message (embeds)
-        report_path (str, optional): Chemin vers le rapport HTML
-    """
-    # Préparer le payload de base
-    payload = {
-        "content": message,
-        "embeds": []
-    }
+    # Rechercher les visualisations générées par le script
+    local viz_file=""
     
-    # Ajouter un embed avec titre et rapport si spécifié
-    if title:
-        embed = {
-            "title": title,
-            "description": message,
-            "color": 3447003,  # Bleu Discord
-            "timestamp": datetime.now().isoformat(),
-            "fields": []
-        }
-        
-        # Si un rapport est spécifié et existe
-        if report_path and os.path.exists(report_path):
-            report_content = read_report_content(report_path)
-            
-            embed["fields"].append({
-                "name": "Résumé du rapport",
-                "value": report_content
-            })
-            
-            # Ajouter le chemin du rapport pour référence
-            embed["footer"] = {
-                "text": f"Rapport complet: {os.path.basename(report_path)}"
-            }
-        
-        payload["embeds"].append(embed)
+    # D'abord chercher les heatmaps de corrélation (plus informatives)
+    viz_file=$(find "$REPORT_DIR" -name "*_correlation_heatmap.png" -type f -mtime -1 -print | head -n 1)
     
-    # Envoyer la requête
-    try:
-        response = requests.post(
-            webhook_url,
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"}
-        )
-        
-        if response.status_code == 204:
-            print(f"✅ Message Discord envoyé avec succès!")
-            return True
-        else:
-            print(f"❌ Erreur lors de l'envoi du message Discord: {response.status_code}")
-            print(response.text)
-            return False
-    
-    except Exception as e:
-        print(f"❌ Exception lors de l'envoi du message Discord: {str(e)}")
-        return False
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python3 send_discord_with_report.py webhook_url message [title] [report_path]")
-        sys.exit(1)
-    
-    webhook_url = sys.argv[1]
-    message = sys.argv[2]
-    title = sys.argv[3] if len(sys.argv) > 3 else None
-    report_path = sys.argv[4] if len(sys.argv) > 4 else None
-    
-    success = send_discord_message(webhook_url, message, title, report_path)
-    sys.exit(0 if success else 1)
-EOF
-    
-    chmod +x "$DISCORD_SCRIPT"
-    echo "✅ Script d'envoi Discord avec rapport créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
-}
-
-# Fonction pour envoyer une notification Discord avec rapport
-notify_discord_with_report() {
-    local title="$1"
-    local message="$2"
-    local report_path="$3"
-    
-    echo "🎮 Tentative d'envoi de notification Discord avec rapport: $title" | tee -a "$LOG_FILE"
-    
-    # Créer le script Discord s'il n'existe pas déjà
-    if [ ! -f "$SCRIPT_DIR/send_discord_with_report.py" ]; then
-        create_discord_report_script
+    # Si aucune heatmap trouvée, chercher d'autres types de graphiques
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_*_histogram.png" -type f -mtime -1 -print | head -n 1)
     fi
     
-    # Envoyer la notification via Discord avec le rapport
-    if python3 "$SCRIPT_DIR/send_discord_with_report.py" "$DISCORD_WEBHOOK" "$message" "$title" "$report_path"; then
-        echo "✅ Notification Discord avec rapport envoyée avec succès" | tee -a "$LOG_FILE"
-        return 0
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_*_timeline.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_chart.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    # Afficher le contenu du répertoire pour débogage
+    echo "Contenu du répertoire des rapports:" | tee -a "$LOG_FILE"
+    ls -la "$REPORT_DIR" | tee -a "$LOG_FILE"
+    
+    # Si aucune visualisation trouvée
+    if [ -z "$viz_file" ]; then
+        echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
+        
+        # Formatter le JSON correctement avec des guillemets échappés
+        json_payload="{\"content\":\"$message\"}"
+        
+        # Envoyer uniquement le message texte
+        curl -s -H "Content-Type: application/json" -d "$json_payload" "$DISCORD_WEBHOOK" > /dev/null
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Message Discord envoyé avec succès!" | tee -a "$LOG_FILE"
+        else
+            echo "❌ Échec de l'envoi du message Discord" | tee -a "$LOG_FILE"
+            return 1
+        fi
     else
-        echo "❌ Échec de l'envoi de la notification Discord avec rapport" | tee -a "$LOG_FILE"
-        return 1
+        echo "📊 Visualisation trouvée: $viz_file" | tee -a "$LOG_FILE"
+        
+        # Formatter le JSON correctement et l'échapper
+        json_content=$(echo "{\"content\":\"$message\"}" | sed 's/"/\\"/g')
+        
+        # Envoyer le message avec l'image
+        curl -s -F "payload_json=$json_content" -F "file=@$viz_file" "$DISCORD_WEBHOOK" > /dev/null
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Notification Discord avec rapport et visualisation envoyée avec succès" | tee -a "$LOG_FILE"
+        else
+            echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
+            return 1
+        fi
     fi
+    
+    return 0
 }
 
+# Fonction pour gérer les erreurs et envoyer des notifications
 handle_error() {
     local step="$1"
     local error_msg="$2"
     
     show_figlet "ERROR"
     echo "❌ ERREUR à l'étape '$step': $error_msg" | tee -a "$LOG_FILE"
-    notify_discord_with_report "❌ Erreur processus de données - Étape: $step" "Le processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails." ""
+    
+    # Envoyer notification Discord
+    send_discord_notification "❌ Erreur processus de données - Étape: $step\nLe processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails."
+    
     exit 1
+}
+
+# Script Python pour le traitement avancé des données
+create_processing_script() {
+    local PROCESSING_SCRIPT="$SCRIPT_DIR/process_data_advanced.py"
+    
+    echo "📝 Création du script de traitement avancé des données..." | tee -a "$LOG_FILE"
+    
+    cat > "$PROCESSING_SCRIPT" << 'EOF'
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Script avancé de traitement des données ouvertes téléchargées.
+Version améliorée avec meilleure gestion des gros fichiers et visualisations avancées.
+"""
+
+import os
+import sys
+import logging
+import datetime
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+
+# Configuration
+BASE_DIR = Path(__file__).parent.parent
+DATA_DIR = BASE_DIR / "data"
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
+REPORT_DIR = DATA_DIR / "reports"
+VISUALIZATION_DIR = DATA_DIR / "visualizations"
+LOG_DIR = BASE_DIR / "logs"
+
+# Configuration du logging
+today = datetime.datetime.now().strftime("%Y-%m-%d")
+log_file = LOG_DIR / f"process_advanced_{today}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Créer les répertoires nécessaires
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+os.makedirs(REPORT_DIR, exist_ok=True)
+os.makedirs(VISUALIZATION_DIR, exist_ok=True)
+
+def get_latest_files():
+    """Récupère les fichiers les plus récents pour chaque source de données."""
+    latest_files = {}
+    
+    # Rechercher les fichiers CSV du jour
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    for file in RAW_DIR.glob(f"*_{today}.csv"):
+        prefix = file.name.split("_")[0]
+        latest_files[prefix] = file
+    
+    logger.info(f"Fichiers à traiter: {latest_files}")
+    return latest_files
+
+def process_csv(file_path, output_prefix):
+    """Traite un fichier CSV avec des fonctionnalités avancées."""
+    try:
+        logger.info(f"Traitement du fichier CSV: {file_path}")
+        
+        # Vérifier la taille du fichier
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        logger.info(f"Taille du fichier: {file_size_mb:.2f} MB")
+        
+        # Stratégie adaptative selon la taille du fichier
+        if file_size_mb > 100:
+            logger.warning(f"Le fichier est très volumineux ({file_size_mb:.2f} MB), limitation à 1 million de lignes")
+            # Échantillonnage pour gros fichiers
+            chunk_size = 1000  # Taille de chaque chunk
+            total_rows = 0
+            chunks = []
+            
+            # Charger les données par chunks
+            for chunk in pd.read_csv(file_path, chunksize=chunk_size, sep=None, engine='python'):
+                chunks.append(chunk)
+                total_rows += len(chunk)
+                if total_rows >= 1000000:  # Limiter à 1 million de lignes
+                    break
+            
+            df = pd.concat(chunks, ignore_index=True)
+            logger.info(f"Chargement de {len(df)} lignes par échantillonnage")
+        else:
+            # Pour fichiers plus petits, chargement complet
+            try:
+                df = pd.read_csv(file_path, sep=',')
+            except:
+                try:
+                    df = pd.read_csv(file_path, sep=';')
+                except:
+                    df = pd.read_csv(file_path, sep=None, engine='python')
+            
+            # Limitation pour fichiers moyens
+            if len(df) > 10000:
+                df = df.sample(n=10000, random_state=42)
+                logger.info(f"Échantillonnage aléatoire de 10000 lignes")
+        
+        # Informations de base
+        row_count = len(df)
+        col_count = len(df.columns)
+        logger.info(f"Dimensions: {row_count} lignes, {col_count} colonnes")
+        
+        # Détecter les types de colonnes
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        date_cols = []
+        
+        # Tenter de convertir des colonnes en dates
+        for col in categorical_cols[:]:
+            try:
+                df[col] = pd.to_datetime(df[col])
+                categorical_cols.remove(col)
+                date_cols.append(col)
+                logger.info(f"Colonne convertie en date: {col}")
+            except:
+                pass
+        
+        # Statistiques avancées pour les colonnes numériques
+        if numeric_cols:
+            stats_file = PROCESSED_DIR / f"{output_prefix}_stats.csv"
+            stats = df[numeric_cols].describe(percentiles=[0.05, 0.25, 0.5, 0.75, 0.95])
+            stats.to_csv(stats_file)
+            logger.info(f"Statistiques détaillées enregistrées dans {stats_file}")
+            
+            # Corrélations
+            if len(numeric_cols) > 1:
+                corr_file = PROCESSED_DIR / f"{output_prefix}_correlations.csv"
+                corr = df[numeric_cols].corr()
+                corr.to_csv(corr_file)
+                logger.info(f"Matrice de corrélation enregistrée dans {corr_file}")
+                
+                # Visualisation des corrélations
+                plt.figure(figsize=(12, 10))
+                sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt='.2f')
+                plt.title(f"Matrice de corrélation - {output_prefix}")
+                corr_chart_file = REPORT_DIR / f"{output_prefix}_correlation_heatmap.png"
+                plt.savefig(corr_chart_file, bbox_inches='tight')
+                plt.close()
+                logger.info(f"Heatmap de corrélation enregistré dans {corr_chart_file}")
+            
+            # Visualisations plus avancées
+            for col in numeric_cols[:3]:  # Limiter à 3 colonnes pour éviter trop de graphiques
+                # Histogramme avec KDE
+                plt.figure(figsize=(12, 6))
+                sns.histplot(df[col], kde=True)
+                plt.title(f"Distribution de {col}")
+                hist_file = REPORT_DIR / f"{output_prefix}_{col}_histogram.png"
+                plt.savefig(hist_file)
+                plt.close()
+                logger.info(f"Histogramme enregistré pour {col}")
+                
+                # Boxplot
+                plt.figure(figsize=(10, 6))
+                sns.boxplot(x=df[col])
+                plt.title(f"Boxplot de {col}")
+                box_file = REPORT_DIR / f"{output_prefix}_{col}_boxplot.png"
+                plt.savefig(box_file)
+                plt.close()
+        
+        # Pour les colonnes catégorielles
+        if categorical_cols:
+            for col in categorical_cols[:3]:  # Limiter à 3 colonnes
+                # Compter les valeurs
+                value_counts = df[col].value_counts().head(20)  # Top 20 valeurs
+                
+                # Barplot
+                plt.figure(figsize=(12, 8))
+                sns.barplot(x=value_counts.index, y=value_counts.values)
+                plt.title(f"Top 20 valeurs pour {col}")
+                plt.xticks(rotation=45, ha='right')
+                cat_file = REPORT_DIR / f"{output_prefix}_{col}_categories.png"
+                plt.savefig(cat_file, bbox_inches='tight')
+                plt.close()
+        
+        # Pour les colonnes de date
+        if date_cols:
+            for col in date_cols:
+                # Agréger par mois
+                try:
+                    df['month'] = df[col].dt.to_period('M')
+                    monthly_counts = df.groupby('month').size()
+                    
+                    # Tracer l'évolution temporelle
+                    plt.figure(figsize=(12, 6))
+                    monthly_counts.plot(kind='line', marker='o')
+                    plt.title(f"Évolution temporelle par mois ({col})")
+                    time_file = REPORT_DIR / f"{output_prefix}_{col}_timeline.png"
+                    plt.savefig(time_file)
+                    plt.close()
+                    logger.info(f"Graphique temporel enregistré pour {col}")
+                except Exception as e:
+                    logger.warning(f"Impossible de créer le graphique temporel pour {col}: {str(e)}")
+        
+        # Enregistrer une version nettoyée
+        clean_file = PROCESSED_DIR / f"{output_prefix}_clean.csv"
+        df.to_csv(clean_file, index=False)
+        logger.info(f"Fichier nettoyé enregistré dans {clean_file}")
+        
+        return {
+            "fichier": str(file_path),
+            "lignes": row_count,
+            "colonnes": col_count,
+            "colonnes_numeriques": numeric_cols,
+            "colonnes_categorielles": categorical_cols,
+            "colonnes_dates": date_cols,
+            "fichiers_sortie": [str(stats_file), str(clean_file)]
+        }
+    
+    except Exception as e:
+        logger.error(f"Erreur lors du traitement du fichier CSV {file_path}: {str(e)}")
+        return {"erreur": str(e)}
+
+def generate_report(results):
+    """Génère un rapport amélioré en HTML."""
+    try:
+        # Créer un résumé en HTML
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Rapport avancé de traitement des données - {today}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; color: #333; }}
+                h1 {{ color: #2c3e50; text-align: center; margin-bottom: 30px; }}
+                h2 {{ color: #3498db; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }}
+                h3 {{ color: #2980b9; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }}
+                th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+                th {{ background-color: #f2f2f2; color: #333; font-weight: bold; }}
+                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                tr:hover {{ background-color: #f1f1f1; }}
+                .error {{ color: #e74c3c; }}
+                .success {{ color: #27ae60; }}
+                .chart-container {{ display: flex; flex-wrap: wrap; justify-content: space-around; margin: 20px 0; }}
+                .chart {{ margin: 10px; border: 1px solid #ddd; padding: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 45%; }}
+                .chart img {{ max-width: 100%; height: auto; }}
+                .summary {{ background-color: #f8f9fa; border-left: 5px solid #3498db; padding: 15px; margin: 20px 0; }}
+                footer {{ text-align: center; margin-top: 50px; font-size: 0.9em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Rapport avancé de traitement des données - {today}</h1>
+            
+            <div class="summary">
+                <p><strong>Nombre de fichiers traités:</strong> {len(results)}</p>
+                <p><strong>Date du traitement:</strong> {datetime.datetime.now().strftime("%Y-%m-%d à %H:%M:%S")}</p>
+                <p><strong>Statut général:</strong> {'Succès' if not any('erreur' in r for r in results) else 'Attention: Certains fichiers ont des erreurs'}</p>
+            </div>
+            
+            <h2>Résultats détaillés par fichier</h2>
+            <table>
+                <tr>
+                    <th>Source</th>
+                    <th>Lignes</th>
+                    <th>Colonnes</th>
+                    <th>Colonnes numériques</th>
+                    <th>Colonnes catégorielles</th>
+                    <th>Colonnes de dates</th>
+                    <th>Statut</th>
+                </tr>
+        """
+        
+        for result in results:
+            source = Path(result.get("fichier", "")).stem.split("_")[0] if "fichier" in result else "Inconnu"
+            if "erreur" in result:
+                html += f"""
+                <tr>
+                    <td>{source}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="error">Erreur: {result["erreur"]}</td>
+                </tr>
+                """
+            else:
+                html += f"""
+                <tr>
+                    <td>{source}</td>
+                    <td>{result.get("lignes", "-")}</td>
+                    <td>{result.get("colonnes", "-")}</td>
+                    <td>{len(result.get("colonnes_numeriques", []))}</td>
+                    <td>{len(result.get("colonnes_categorielles", []))}</td>
+                    <td>{len(result.get("colonnes_dates", []))}</td>
+                    <td class="success">Succès</td>
+                </tr>
+                """
+        
+        html += """
+            </table>
+            
+            <h2>Visualisations générées</h2>
+            <p>Voici les graphiques générés pendant l'analyse:</p>
+            <div class="chart-container">
+        """
+        
+        # Lister et inclure les graphiques directement
+        charts = list(REPORT_DIR.glob(f"*_correlation_heatmap.png"))
+        charts.extend(list(REPORT_DIR.glob(f"*_*_histogram.png")))
+        charts.extend(list(REPORT_DIR.glob(f"*_*_timeline.png")))
+        charts.extend(list(REPORT_DIR.glob(f"*_*_boxplot.png")))
+        charts.extend(list(REPORT_DIR.glob(f"*_chart.png")))
+        
+        for chart_file in charts:
+            chart_name = chart_file.name
+            source = chart_name.split("_")[0]
+            
+            html += f"""
+            <div class="chart">
+                <h3>{source} - {chart_name}</h3>
+                <img src="{chart_name}" alt="{chart_name}" />
+            </div>
+            """
+        
+        html += """
+            </div>
+            
+            <footer>
+                <p>Rapport généré automatiquement par le système avancé de traitement de données le """ + datetime.datetime.now().strftime("%Y-%m-%d à %H:%M:%S") + """</p>
+            </footer>
+        </body>
+        </html>
+        """
+        
+        # Enregistrer le rapport HTML
+        report_file = REPORT_DIR / f"rapport_avance_{today}.html"
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(html)
+        
+        logger.info(f"Rapport HTML avancé généré: {report_file}")
+        return report_file
+    
+    except Exception as e:
+        logger.error(f"Erreur lors de la génération du rapport avancé: {str(e)}")
+        return None
+
+def main():
+    """Fonction principale."""
+    logger.info("=== Début du traitement avancé des données ===")
+    
+    # Récupérer les fichiers les plus récents
+    latest_files = get_latest_files()
+    
+    if not latest_files:
+        logger.warning("Aucun fichier à traiter trouvé.")
+        return 1
+    
+    results = []
+    
+    # Traiter chaque fichier
+    for prefix, file_path in latest_files.items():
+        result = process_csv(file_path, prefix)
+        results.append(result)
+    
+    # Générer le rapport
+    report_file = generate_report(results)
+    
+    if report_file:
+        logger.info(f"Traitement avancé terminé avec succès. Rapport: {report_file}")
+    else:
+        logger.error("Échec de la génération du rapport avancé")
+        return 1
+    
+    logger.info("=== Fin du traitement avancé des données ===")
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+EOF
+    
+    chmod +x "$PROCESSING_SCRIPT"
+    echo "✅ Script de traitement avancé créé: $PROCESSING_SCRIPT" | tee -a "$LOG_FILE"
+    return 0
 }
 
 # === CONFIGURATION GIT ===
@@ -329,7 +617,7 @@ setup_git() {
             git init || handle_error "Git init" "Impossible d'initialiser le dépôt Git"
         fi
         
-        # Vérifier s'il y a des modifications non committées
+        # Vérifier s'il y a des modifications non commitées
         if git diff --quiet; then
             echo "✅ Aucune modification non commitée détectée" | tee -a "$LOG_FILE"
         else
@@ -344,7 +632,7 @@ setup_git() {
         if git show-ref --verify --quiet "refs/heads/$GIT_BRANCH"; then
             git checkout "$GIT_BRANCH" || handle_error "Git checkout" "Impossible de passer à la branche $GIT_BRANCH"
             echo "✅ Passage à la branche existante: $GIT_BRANCH" | tee -a "$LOG_FILE"
-        else
+            else
             git checkout -b "$GIT_BRANCH" || handle_error "Git branch" "Impossible de créer la branche $GIT_BRANCH"
             echo "✅ Création et passage à la nouvelle branche: $GIT_BRANCH" | tee -a "$LOG_FILE"
         fi
@@ -418,274 +706,57 @@ download_data() {
 # === 2. TRAITEMENT DES DONNÉES ===
 process_data() {
     show_figlet "Processing"
-    echo "=== ÉTAPE 2: TRAITEMENT DES DONNÉES ===" | tee -a "$LOG_FILE"
+    echo "=== ÉTAPE 2: TRAITEMENT AVANCÉ DES DONNÉES MASSIVES ===" | tee -a "$LOG_FILE"
     
-    echo "🔄 Lancement du script de traitement Python..." | tee -a "$LOG_FILE"
+    echo "🔄 Lancement du script de traitement Python avancé..." | tee -a "$LOG_FILE"
     
-    # Créer un script Python temporaire
-    TEMP_PYTHON_SCRIPT="$SCRIPT_DIR/temp_process_data.py"
-    
-    cat > "$TEMP_PYTHON_SCRIPT" << 'EOF'
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import os
-import sys
-import logging
-import datetime
-import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-
-# Configuration
-BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
-RAW_DIR = DATA_DIR / "raw"
-PROCESSED_DIR = DATA_DIR / "processed"
-REPORT_DIR = DATA_DIR / "reports"
-LOG_DIR = BASE_DIR / "logs"
-
-# Configuration du logging
-today = datetime.datetime.now().strftime("%Y-%m-%d")
-log_file = LOG_DIR / f"process_{today}.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Créer les répertoires nécessaires
-os.makedirs(PROCESSED_DIR, exist_ok=True)
-os.makedirs(REPORT_DIR, exist_ok=True)
-
-def get_files_to_process():
-    """Récupère les fichiers CSV du jour."""
-    files_to_process = {}
-    
-    # Rechercher les fichiers CSV du jour
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    for file in RAW_DIR.glob(f"*_{today}.csv"):
-        prefix = file.name.split("_")[0]
-        files_to_process[prefix] = file
-    
-    logger.info(f"Fichiers à traiter: {files_to_process}")
-    return files_to_process
-
-def process_csv(file_path, output_prefix):
-    """Traite un fichier CSV de manière simplifiée."""
-    try:
-        logger.info(f"Traitement du fichier CSV: {file_path}")
-        
-        # Charger le CSV - tenter plusieurs séparateurs
-        try:
-            df = pd.read_csv(file_path, sep=',')
-        except:
-            try:
-                df = pd.read_csv(file_path, sep=';')
-            except:
-                df = pd.read_csv(file_path, sep=None, engine='python')
-        
-        # Informations de base
-        row_count = len(df)
-        col_count = len(df.columns)
-        logger.info(f"Dimensions: {row_count} lignes, {col_count} colonnes")
-        
-        # Conserver seulement les 500 premières lignes pour aller plus vite
-        if row_count > 500:
-            df = df.head(500)
-            logger.info(f"Limitation à 500 lignes pour un traitement plus rapide")
-        
-        # Détecter les colonnes numériques
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        
-        # Statistiques de base pour les colonnes numériques
-        if numeric_cols:
-            stats_file = PROCESSED_DIR / f"{output_prefix}_stats.csv"
-            stats = df[numeric_cols].describe()
-            stats.to_csv(stats_file)
-            logger.info(f"Statistiques enregistrées dans {stats_file}")
-            
-            # Générer un graphique pour la première colonne numérique
-            if len(numeric_cols) > 0:
-                fig, ax = plt.subplots(figsize=(10, 6))
-                df[numeric_cols[0]].hist(bins=20, ax=ax)
-                ax.set_title(f"Distribution de {numeric_cols[0]}")
-                chart_file = REPORT_DIR / f"{output_prefix}_chart.png"
-                plt.savefig(chart_file)
-                plt.close()
-                logger.info(f"Graphique enregistré dans {chart_file}")
-        
-        # Enregistrer une version nettoyée
-        clean_file = PROCESSED_DIR / f"{output_prefix}_clean.csv"
-        df.to_csv(clean_file, index=False)
-        logger.info(f"Fichier nettoyé enregistré dans {clean_file}")
-        
-        return {
-            "fichier": str(file_path),
-            "lignes": row_count,
-            "colonnes": col_count,
-            "colonnes_numeriques": numeric_cols,
-            "fichiers_sortie": [str(stats_file), str(clean_file)]
-        }
-    
-    except Exception as e:
-        logger.error(f"Erreur lors du traitement du fichier CSV {file_path}: {str(e)}")
-        return {"erreur": str(e)}
-
-def generate_report(results):
-    """Génère un rapport simple en HTML."""
-    try:
-        # Créer un résumé en HTML
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Rapport de traitement des données - {today}</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                h1 {{ color: #2c3e50; }}
-                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #f2f2f2; }}
-                tr:nth-child(even) {{ background-color: #f9f9f9; }}
-                .error {{ color: red; }}
-            </style>
-        </head>
-        <body>
-            <h1>Rapport de traitement des données - {today}</h1>
-            <p>Nombre de fichiers traités: {len(results)}</p>
-            
-            <h2>Résultats par fichier</h2>
-            <table>
-                <tr>
-                    <th>Source</th>
-                    <th>Lignes</th>
-                    <th>Colonnes</th>
-                    <th>Statut</th>
-                </tr>
-        """
-        
-        for result in results:
-            source = result.get("fichier", "").split("/")[-1].split("_")[0]
-            if "erreur" in result:
-                html += f"""
-                <tr class="error">
-                    <td>{source}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>Erreur: {result["erreur"]}</td>
-                </tr>
-                """
-            else:
-                html += f"""
-                <tr>
-                    <td>{source}</td>
-                    <td>{result.get("lignes", "-")}</td>
-                    <td>{result.get("colonnes", "-")}</td>
-                    <td>Succès</td>
-                </tr>
-                """
-        
-        html += """
-            </table>
-            
-            <h2>Graphiques générés</h2>
-            <p>Les graphiques suivants ont été générés :</p>
-            <ul>
-        """
-        
-        # Lister les graphiques
-        for file in REPORT_DIR.glob(f"*_chart.png"):
-            html += f"<li>{file.name}</li>\n"
-        
-        html += """
-            </ul>
-            
-            <p>Rapport généré automatiquement le """ + datetime.datetime.now().strftime("%Y-%m-%d à %H:%M:%S") + """</p>
-        </body>
-        </html>
-        """
-        
-        # Enregistrer le rapport HTML
-        report_file = REPORT_DIR / f"rapport_{today}.html"
-        with open(report_file, "w", encoding="utf-8") as f:
-            f.write(html)
-        
-        logger.info(f"Rapport HTML généré: {report_file}")
-        return report_file
-    
-    except Exception as e:
-        logger.error(f"Erreur lors de la génération du rapport: {str(e)}")
-        return None
-
-def main():
-    """Fonction principale."""
-    logger.info("=== Début du traitement des données ===")
-    
-    # Récupérer les fichiers à traiter
-    files_to_process = get_files_to_process()
-    
-    if not files_to_process:
-        logger.warning("Aucun fichier à traiter trouvé.")
-        return 1
-    
-    results = []
-    
-    # Traiter chaque fichier
-    for prefix, file_path in files_to_process.items():
-        result = process_csv(file_path, prefix)
-        results.append(result)
-    
-    # Générer le rapport
-    report_file = generate_report(results)
-    
-    if report_file:
-        logger.info(f"Rapport généré avec succès: {report_file}")
-    else:
-        logger.error("Échec de la génération du rapport")
-    
-    logger.info("=== Fin du traitement des données ===")
-    
-    return 0 if report_file else 1
-
-if __name__ == "__main__":
-    sys.exit(main())
-EOF
-    
-    # Rendre le script exécutable
-    chmod +x "$TEMP_PYTHON_SCRIPT"
+    # Créer le script de traitement s'il n'existe pas déjà
+    if [ ! -f "$SCRIPT_DIR/process_data_advanced.py" ]; then
+        create_processing_script
+    fi
     
     # Exécuter le script
-    python3 "$TEMP_PYTHON_SCRIPT"
+    python3 "$SCRIPT_DIR/process_data_advanced.py"
     PYTHON_EXIT_CODE=$?
-    
-    # Supprimer le script temporaire
-    rm -f "$TEMP_PYTHON_SCRIPT"
     
     # Vérifier le résultat
     if [ $PYTHON_EXIT_CODE -ne 0 ]; then
-        handle_error "Traitement" "Le script Python a échoué avec le code d'erreur $PYTHON_EXIT_CODE"
+        handle_error "Traitement" "Le script Python avancé a échoué avec le code d'erreur $PYTHON_EXIT_CODE"
     else
-        echo "✅ Traitement des données terminé avec succès" | tee -a "$LOG_FILE"
+        echo "✅ Traitement avancé des données terminé avec succès" | tee -a "$LOG_FILE"
     fi
 }
 
 # === 3. GÉNÉRATION DE RAPPORT ===
 generate_summary() {
     show_figlet "Report"
-    echo "=== ÉTAPE 3: GÉNÉRATION DU RAPPORT FINAL ===" | tee -a "$LOG_FILE"
+    echo "=== ÉTAPE 3: GÉNÉRATION DU RAPPORT AVANCÉ ===" | tee -a "$LOG_FILE"
+    
+    # Chercher d'abord le rapport avancé
+    echo "Recherche du rapport avancé..." | tee -a "$LOG_FILE"
+    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_avance_$DATE.html")
 
+    # Si le rapport avancé n'est pas trouvé, chercher le rapport standard
+    if [ -z "$REPORT_HTML" ] || [ ! -f "$REPORT_HTML" ]; then
+        echo "⚠️ Rapport avancé non trouvé, recherche d'un rapport standard..." | tee -a "$LOG_FILE"
+        REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+    fi
+
+    # Afficher le contenu du répertoire pour le débogage
+    echo "📂 Contenu du répertoire des rapports:" | tee -a "$LOG_FILE"
+    ls -la "$REPORT_DIR" | tee -a "$LOG_FILE"
+
+    # Vérifier si un rapport a été trouvé
+    if [ -z "$REPORT_HTML" ] || [ ! -f "$REPORT_HTML" ]; then
+        handle_error "Rapport" "Aucun rapport n'a été généré"
+    else
+        echo "✅ Rapport trouvé: $REPORT_HTML" | tee -a "$LOG_FILE"
+    fi
+    
     # Compter les fichiers
     RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
     PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
-    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*_chart.png" -mtime -1 | wc -l)
-    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*.png" -mtime -1 | wc -l)
     
     # Créer un résumé
     SUMMARY=$(cat << EOF
@@ -722,11 +793,6 @@ EOF
     echo "$SUMMARY" > "$SUMMARY_FILE"
     
     echo "✅ Résumé généré et enregistré dans $SUMMARY_FILE" | tee -a "$LOG_FILE"
-    
-    # Vérifier si le rapport HTML existe
-    if [ ! -f "$REPORT_HTML" ]; then
-        handle_error "Rapport" "Le rapport HTML n'a pas été généré"
-    fi
     
     return 0
 }
@@ -773,29 +839,32 @@ commit_to_git() {
 # === 5. NOTIFICATION ===
 send_notification() {
     show_figlet "Notify"
-    echo "=== ÉTAPE 5: ENVOI DE NOTIFICATION ===" | tee -a "$LOG_FILE"
+    echo "=== ÉTAPE 5: ENVOI DE NOTIFICATION AVEC VISUALISATIONS ===" | tee -a "$LOG_FILE"
     
     # Compter les fichiers
     RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
     PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
-    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*_chart.png" -mtime -1 | wc -l)
-    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*.png" -mtime -1 | wc -l)
+    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_avance_$DATE.html" -o -name "rapport_$DATE.html" | head -1)
     
     # Créer le message de notification
-    NOTIFICATION="
-Le traitement automatique des données du $DATE s'est terminé avec succès.
+    MESSAGE="
+✅ Traitement de données du $DATE terminé avec succès!
 
-Résumé:
+📊 Résumé:
 - $RAW_COUNT fichiers de données téléchargés
 - $PROCESSED_COUNT fichiers traités générés
-- $CHART_COUNT graphiques générés
+- $CHART_COUNT graphiques et visualisations créés
+
+Le rapport complet est disponible à : $REPORT_HTML
+
+Ce message inclut l'une des visualisations générées automatiquement.
 "
     
-    # Envoyer la notification Discord avec le rapport HTML
-    NOTIFICATION_TITLE="✅ Traitement des données réussi - $DATE"
-    notify_discord_with_report "$NOTIFICATION_TITLE" "$NOTIFICATION" "$REPORT_HTML"
+    # Envoyer notification Discord avec une visualisation
+    send_discord_notification "$MESSAGE"
     
-    echo "🎮 Notification avec rapport envoyée" | tee -a "$LOG_FILE"
+    echo "📧 Notification avec visualisation envoyée" | tee -a "$LOG_FILE"
 }
 
 # === EXÉCUTION PRINCIPALE ===
@@ -823,7 +892,7 @@ main() {
     echo "===== FIN DU PROCESSUS COMPLET: $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a "$LOG_FILE"
     echo "✅ Processus terminé avec succès"
     echo "📄 Pour plus de détails, consultez les logs: $LOG_FILE"
-    echo "📊 Rapport HTML: $REPORT_DIR/rapport_$DATE.html"
+    echo "📊 Rapport HTML: $REPORT_DIR/rapport_avance_$DATE.html"
     
     return 0
 }

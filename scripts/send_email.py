@@ -74,6 +74,69 @@ def create_report_image(report_dir, date_str):
         print(f"⚠️ Erreur lors de la création de l'image: {str(e)}")
         return None
 
+def send_email_via_gmail(to_email, subject, message, attachments=None):
+    """
+    Envoie un email via SMTP Gmail
+    Vous devez remplir ces informations pour que ça fonctionne
+    """
+    # Configuration SMTP Gmail - À REMPLIR
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    
+    # IMPORTANT : À modifier avec vos propres identifiants
+    gmail_user = "abbassiadamou55@gmail.com"  # Remplacez par votre email Gmail
+    gmail_password = "701000Abbas@"  # Mot de passe d'application Gmail, pas votre mot de passe normal!
+    
+    # Créer le message
+    msg = MIMEMultipart()
+    msg['From'] = f"Système Automatisé <{gmail_user}>"
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    
+    # Ajouter le corps du message
+    msg.attach(MIMEText(message, 'plain'))
+    
+    # Ajouter les pièces jointes si présentes
+    if attachments and isinstance(attachments, list):
+        for attachment in attachments:
+            if os.path.exists(attachment):
+                file_type = mimetypes.guess_type(attachment)[0]
+                filename = os.path.basename(attachment)
+                
+                if file_type and file_type.startswith('image/'):
+                    with open(attachment, 'rb') as img_file:
+                        img = MIMEImage(img_file.read())
+                        img.add_header('Content-Disposition', 'attachment', filename=filename)
+                        msg.attach(img)
+                else:
+                    with open(attachment, 'rb') as file:
+                        part = MIMEApplication(file.read())
+                        part.add_header('Content-Disposition', 'attachment', filename=filename)
+                        msg.attach(part)
+    
+    try:
+        # Connexion au serveur
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        
+        # Connexion
+        server.login(gmail_user, gmail_password)
+        
+        # Envoi du message
+        text = msg.as_string()
+        server.sendmail(gmail_user, to_email, text)
+        
+        # Fermeture
+        server.quit()
+        
+        print(f"✅ Email envoyé avec succès à {to_email} via Gmail SMTP")
+        return True
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi via Gmail: {str(e)}")
+        return False
+
 def send_email(recipient, subject, message, report_dir, date_str):
     """
     Envoie un email avec une image en pièce jointe
@@ -81,38 +144,41 @@ def send_email(recipient, subject, message, report_dir, date_str):
     # Créer une image pour la notification
     image_path = create_report_image(report_dir, date_str)
     
-    # Créer un message multipart
-    msg = MIMEMultipart()
-    msg['Subject'] = subject
-    msg['From'] = f"Système de données <{os.getlogin()}@localhost>"
-    msg['To'] = recipient
-    
-    # Ajouter le texte du message
-    msg.attach(MIMEText(message, 'plain'))
-    
-    # Ajouter l'image si elle a été créée
+    # Préparer les pièces jointes
+    attachments = []
     if image_path and os.path.exists(image_path):
-        with open(image_path, 'rb') as img_file:
-            img_data = img_file.read()
-            image = MIMEImage(img_data)
-            image.add_header('Content-Disposition', 'attachment', filename=os.path.basename(image_path))
-            msg.attach(image)
+        attachments.append(image_path)
     
-    # Tentative 1: Envoi via sendmail local
-    try:
-        p = os.popen(f"/usr/sbin/sendmail -t -i", 'w')
-        p.write(msg.as_string())
-        status = p.close()
-        
-        if status is None:
-            print(f"✅ Email envoyé via sendmail local à {recipient}")
-            return True
-    except Exception as e:
-        print(f"⚠️ Échec envoi via sendmail local: {str(e)}")
+    # Ajouter également le rapport HTML si disponible
+    html_report = os.path.join(report_dir, f"rapport_{date_str}.html")
+    if os.path.exists(html_report):
+        attachments.append(html_report)
     
-    # Tentative 2: Enregistrer dans un fichier
+    # Tentative 1: Gmail SMTP (si configuré)
+    if send_email_via_gmail(recipient, subject, message, attachments):
+        return True
+    
+    # Si Gmail échoue, enregistrer dans un fichier
     try:
         email_file = os.path.join(report_dir, f"notification_{date_str}.eml")
+        
+        # Créer un message multipart pour la sauvegarde locale
+        msg = MIMEMultipart()
+        msg['Subject'] = subject
+        msg['From'] = f"Système de données <systeme@local>"
+        msg['To'] = recipient
+        
+        # Ajouter le texte du message
+        msg.attach(MIMEText(message, 'plain'))
+        
+        # Ajouter l'image si elle a été créée
+        if image_path and os.path.exists(image_path):
+            with open(image_path, 'rb') as img_file:
+                img_data = img_file.read()
+                image = MIMEImage(img_data)
+                image.add_header('Content-Disposition', 'attachment', filename=os.path.basename(image_path))
+                msg.attach(image)
+        
         with open(email_file, 'w') as f:
             f.write(msg.as_string())
         print(f"✅ Email enregistré dans le fichier: {email_file}")
@@ -124,6 +190,8 @@ def send_email(recipient, subject, message, report_dir, date_str):
             f.write(f"Subject: {subject}\n\n")
             f.write(message)
             f.write(f"\n\nNote: Une image est jointe à cet email. Vous pouvez la voir ici: {image_path}")
+            if os.path.exists(html_report):
+                f.write(f"\nLe rapport HTML est également joint. Vous pouvez le consulter ici: {html_report}")
         print(f"✅ Version texte enregistrée dans: {text_file}")
         
         return True

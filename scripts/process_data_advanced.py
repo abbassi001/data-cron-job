@@ -199,13 +199,13 @@ def process_csv(file_path, output_prefix, max_rows=None):
             
             try:
                 df = pd.read_csv(file_path, sep=likely_sep, encoding=encoding_used, 
-                                nrows=max_rows, error_bad_lines=False, warn_bad_lines=True,
+                                nrows=max_rows, error_bad_lines='skip', warn_bad_lines=True,
                                 low_memory=False)
             except Exception as e:
                 logger.error(f"Erreur lors de la lecture avec le séparateur '{likely_sep}': {str(e)}")
                 logger.info("Tentative avec le moteur Python et détection automatique du séparateur")
                 df = pd.read_csv(file_path, sep=None, encoding=encoding_used, 
-                                nrows=max_rows, error_bad_lines=False, warn_bad_lines=True,
+                                nrows=max_rows, error_bad_lines='skip', warn_bad_lines=True,
                                 engine='python', low_memory=False)
             
             # Optimiser la mémoire du DataFrame

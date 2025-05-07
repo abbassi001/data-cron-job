@@ -9,7 +9,7 @@
 # 3. Traitement et analyse des données
 # 4. Génération de rapports
 # 5. Versionning Git
-# 6. Envoi de notifications avec images
+# 6. Envoi de notifications Discord avec rapport
 # ============================================================
 
 # Fonction pour afficher un texte en figlet si disponible
@@ -41,7 +41,9 @@ REPORT_DIR="$DATA_DIR/reports"
 LOG_DIR="$PROJECT_DIR/logs"
 DATE=$(date +%Y-%m-%d)
 LOG_FILE="$LOG_DIR/complet_$DATE.log"
-EMAIL="abbassiadamou55@gmail.com" # Votre adresse email
+
+# Configuration Discord - URL du webhook
+DISCORD_WEBHOOK="https://discord.com/api/webhooks/1369668625744662669/Vj-FfURhiuzXR7qD_kXIaw8oAl_-A41L8spsGnCdAZ2IKYSVgeXHeJ4f_YDA2at7-cC0"
 
 # Vérifier que le script est exécuté depuis le répertoire du projet
 cd "$PROJECT_DIR" || {
@@ -103,6 +105,17 @@ else
     echo "✅ Matplotlib installé" | tee -a "$LOG_FILE"
 fi
 
+# Vérifier requests pour Discord
+python3 -c "import requests" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ Requests non installé. Installation en cours..." | tee -a "$LOG_FILE"
+    pip install requests || {
+        echo "❌ Échec de l'installation de requests. Les notifications Discord ne fonctionneront pas." | tee -a "$LOG_FILE"
+    }
+else
+    echo "✅ Requests installé" | tee -a "$LOG_FILE"
+fi
+
 # Vérifier PIL pour la création d'images
 python3 -c "from PIL import Image" 2>/dev/null
 if [ $? -ne 0 ]; then
@@ -121,221 +134,177 @@ if ! command -v figlet &> /dev/null; then
 fi
 
 # === FONCTIONS UTILITAIRES ===
-# Script Python pour envoyer des emails avec image
-create_email_script() {
-    local EMAIL_SCRIPT="$SCRIPT_DIR/send_email.py"
+# Script Python pour envoyer des notifications Discord avec rapport
+create_discord_report_script() {
+    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord_with_report.py"
     
-    cat > "$EMAIL_SCRIPT" << 'EOF'
+    cat > "$DISCORD_SCRIPT" << 'EOF'
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import sys
 import os
-import smtplib
-import mimetypes
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-from email.mime.application import MIMEApplication
+import json
+import requests
 from datetime import datetime
-from pathlib import Path
 
-def create_report_image(report_dir, date_str):
+def read_report_content(report_path):
     """
-    Crée une image simple avec la date et les informations du traitement
+    Lit le contenu d'un rapport HTML et extrait les éléments clés
     """
     try:
-        # Vérifier si PIL (Python Imaging Library) est disponible
-        from PIL import Image, ImageDraw, ImageFont
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # Extraire les informations pertinentes
+        # Ceci est une version simplifiée - vous pourriez avoir besoin d'un parsing HTML plus avancé
+        summary = []
         
-        # Créer une image simple avec date et titre
-        img_width, img_height = 800, 400
-        background_color = (240, 248, 255)  # Bleu très clair
-        text_color = (25, 25, 112)  # Bleu marine
+        # Extraire le nombre de fichiers traités
+        if 'Nombre de fichiers traités:' in content:
+            start = content.find('Nombre de fichiers traités:')
+            end = content.find('</p>', start)
+            if start > 0 and end > start:
+                file_count = content[start:end].split(':')[1].strip()
+                summary.append(f"Fichiers traités: {file_count}")
         
-        # Créer l'image
-        img = Image.new('RGB', (img_width, img_height), color=background_color)
-        draw = ImageDraw.Draw(img)
+        # Extraire les graphiques générés
+        if '<h2>Graphiques générés</h2>' in content:
+            start = content.find('<h2>Graphiques générés</h2>')
+            list_start = content.find('<ul>', start)
+            list_end = content.find('</ul>', list_start)
+            
+            if list_start > 0 and list_end > list_start:
+                graphs_list = content[list_start:list_end]
+                graphs = []
+                
+                start_idx = 0
+                while True:
+                    li_start = graphs_list.find('<li>', start_idx)
+                    if li_start == -1:
+                        break
+                    li_end = graphs_list.find('</li>', li_start)
+                    if li_end == -1:
+                        break
+                    
+                    graph_name = graphs_list[li_start+4:li_end].strip()
+                    graphs.append(graph_name)
+                    start_idx = li_end
+                
+                if graphs:
+                    summary.append(f"Graphiques: {', '.join(graphs)}")
         
-        # Essayer de charger une police, sinon utiliser la police par défaut
-        try:
-            # Essayer une police commune
-            font_large = ImageFont.truetype("Arial", 36)
-            font_medium = ImageFont.truetype("Arial", 24)
-            font_small = ImageFont.truetype("Arial", 18)
-        except Exception:
-            # Utiliser les polices par défaut si Arial n'est pas disponible
-            font_large = ImageFont.load_default()
-            font_medium = ImageFont.load_default()
-            font_small = ImageFont.load_default()
+        # Si on n'a pas pu extraire d'infos, retourner un message par défaut
+        if not summary:
+            return "Rapport HTML généré. Consultez le fichier pour plus de détails."
         
-        # Dessiner le titre
-        title_text = "Traitement de Données"
-        draw.text((img_width//2 - 150, 50), title_text, fill=text_color, font=font_large)
+        return "\n".join(summary)
         
-        # Dessiner la date
-        date_text = f"Date: {date_str}"
-        draw.text((img_width//2 - 100, 120), date_text, fill=text_color, font=font_medium)
-        
-        # Dessiner un cadre
-        draw.rectangle([(50, 50), (img_width-50, img_height-50)], outline=text_color, width=2)
-        
-        # Ajouter un message
-        message_text = "Rapport de traitement automatique"
-        draw.text((img_width//2 - 150, 200), message_text, fill=text_color, font=font_medium)
-        
-        # Ajouter l'heure
-        time_text = f"Généré le: {datetime.now().strftime('%H:%M:%S')}"
-        draw.text((img_width//2 - 100, 260), time_text, fill=text_color, font=font_small)
-        
-        # Sauvegarder l'image
-        image_path = os.path.join(report_dir, f"notification_image_{date_str}.png")
-        img.save(image_path)
-        
-        print(f"✅ Image créée: {image_path}")
-        return image_path
-    
-    except ImportError:
-        print("⚠️ La bibliothèque PIL n'est pas installée. Impossible de créer une image.")
-        return None
     except Exception as e:
-        print(f"⚠️ Erreur lors de la création de l'image: {str(e)}")
-        return None
+        print(f"⚠️ Erreur lors de la lecture du rapport: {str(e)}")
+        return "Rapport HTML généré, mais impossible d'extraire le contenu."
 
-def send_email(recipient, subject, message, report_dir, date_str):
+def send_discord_message(webhook_url, message, title=None, report_path=None):
     """
-    Envoie un email avec une image en pièce jointe
+    Envoie un message à Discord via un webhook, avec un résumé du rapport si disponible
+    
+    Args:
+        webhook_url (str): URL du webhook Discord
+        message (str): Le message à envoyer
+        title (str, optional): Titre du message (embeds)
+        report_path (str, optional): Chemin vers le rapport HTML
     """
-    # Créer une image pour la notification
-    image_path = create_report_image(report_dir, date_str)
+    # Préparer le payload de base
+    payload = {
+        "content": message,
+        "embeds": []
+    }
     
-    # Créer un message multipart
-    msg = MIMEMultipart()
-    msg['Subject'] = subject
-    msg['From'] = f"Système de données <{os.getlogin()}@localhost>"
-    msg['To'] = recipient
-    
-    # Ajouter le texte du message
-    msg.attach(MIMEText(message, 'plain'))
-    
-    # Ajouter l'image si elle a été créée
-    if image_path and os.path.exists(image_path):
-        with open(image_path, 'rb') as img_file:
-            img_data = img_file.read()
-            image = MIMEImage(img_data)
-            image.add_header('Content-Disposition', 'attachment', filename=os.path.basename(image_path))
-            msg.attach(image)
-    
-    # Ajouter également le rapport HTML si disponible
-    html_report = os.path.join(report_dir, f"rapport_{date_str}.html")
-    if os.path.exists(html_report):
-        with open(html_report, 'rb') as report_file:
-            report_data = report_file.read()
-            attachment = MIMEApplication(report_data)
-            attachment.add_header('Content-Disposition', 'attachment', filename=os.path.basename(html_report))
-            msg.attach(attachment)
-    
-    # Tentative 1: Envoi via sendmail local
-    try:
-        p = os.popen(f"/usr/sbin/sendmail -t -i", 'w')
-        p.write(msg.as_string())
-        status = p.close()
+    # Ajouter un embed avec titre et rapport si spécifié
+    if title:
+        embed = {
+            "title": title,
+            "description": message,
+            "color": 3447003,  # Bleu Discord
+            "timestamp": datetime.now().isoformat(),
+            "fields": []
+        }
         
-        if status is None:
-            print(f"✅ Email envoyé via sendmail local à {recipient}")
+        # Si un rapport est spécifié et existe
+        if report_path and os.path.exists(report_path):
+            report_content = read_report_content(report_path)
+            
+            embed["fields"].append({
+                "name": "Résumé du rapport",
+                "value": report_content
+            })
+            
+            # Ajouter le chemin du rapport pour référence
+            embed["footer"] = {
+                "text": f"Rapport complet: {os.path.basename(report_path)}"
+            }
+        
+        payload["embeds"].append(embed)
+    
+    # Envoyer la requête
+    try:
+        response = requests.post(
+            webhook_url,
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 204:
+            print(f"✅ Message Discord envoyé avec succès!")
             return True
-    except Exception as e:
-        print(f"⚠️ Échec envoi via sendmail local: {str(e)}")
+        else:
+            print(f"❌ Erreur lors de l'envoi du message Discord: {response.status_code}")
+            print(response.text)
+            return False
     
-    # Tentative 2: Enregistrer dans un fichier
-    try:
-        email_file = os.path.join(report_dir, f"notification_{date_str}.eml")
-        with open(email_file, 'w') as f:
-            f.write(msg.as_string())
-        print(f"✅ Email enregistré dans le fichier: {email_file}")
-        
-        # Créer aussi une version texte simple
-        text_file = os.path.join(report_dir, f"notification_{date_str}.txt")
-        with open(text_file, 'w') as f:
-            f.write(f"To: {recipient}\n")
-            f.write(f"Subject: {subject}\n\n")
-            f.write(message)
-            f.write(f"\n\nNote: Une image est jointe à cet email. Vous pouvez la voir ici: {image_path}")
-            if os.path.exists(html_report):
-                f.write(f"\nLe rapport HTML est également joint. Vous pouvez le consulter ici: {html_report}")
-        print(f"✅ Version texte enregistrée dans: {text_file}")
-        
-        return True
     except Exception as e:
-        print(f"⚠️ Échec enregistrement de l'email: {str(e)}")
+        print(f"❌ Exception lors de l'envoi du message Discord: {str(e)}")
         return False
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
-        print("Usage: python3 send_email.py destinataire sujet fichier_message repertoire_rapport")
+    if len(sys.argv) < 3:
+        print("Usage: python3 send_discord_with_report.py webhook_url message [title] [report_path]")
         sys.exit(1)
     
-    recipient = sys.argv[1]
-    subject = sys.argv[2]
+    webhook_url = sys.argv[1]
+    message = sys.argv[2]
+    title = sys.argv[3] if len(sys.argv) > 3 else None
+    report_path = sys.argv[4] if len(sys.argv) > 4 else None
     
-    try:
-        with open(sys.argv[3], 'r') as f:
-            message = f.read()
-    except Exception as e:
-        print(f"❌ Erreur lecture fichier message: {str(e)}")
-        sys.exit(1)
-    
-    report_dir = sys.argv[4]
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    
-    success = send_email(recipient, subject, message, report_dir, date_str)
+    success = send_discord_message(webhook_url, message, title, report_path)
     sys.exit(0 if success else 1)
 EOF
     
-    chmod +x "$EMAIL_SCRIPT"
-    echo "✅ Script d'envoi d'email créé: $EMAIL_SCRIPT" | tee -a "$LOG_FILE"
+    chmod +x "$DISCORD_SCRIPT"
+    echo "✅ Script d'envoi Discord avec rapport créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
 }
 
-notify() {
-    local subject="$1"
+# Fonction pour envoyer une notification Discord avec rapport
+notify_discord_with_report() {
+    local title="$1"
     local message="$2"
+    local report_path="$3"
     
-    echo "📧 Tentative d'envoi de notification: $subject" | tee -a "$LOG_FILE"
+    echo "🎮 Tentative d'envoi de notification Discord avec rapport: $title" | tee -a "$LOG_FILE"
     
-    # Créer un fichier temporaire pour le message
-    local MSG_FILE=$(mktemp)
-    echo "$message" > "$MSG_FILE"
+    # Créer le script Discord s'il n'existe pas déjà
+    if [ ! -f "$SCRIPT_DIR/send_discord_with_report.py" ]; then
+        create_discord_report_script
+    fi
     
-    # Méthode 1: Tenter d'utiliser la commande 'mail' si disponible
-    if command -v mail &> /dev/null; then
-        if mail -s "$subject" "$EMAIL" < "$MSG_FILE"; then
-            echo "✅ Email envoyé à $EMAIL via la commande mail" | tee -a "$LOG_FILE"
-            rm -f "$MSG_FILE"
-            return 0
-        else
-            echo "⚠️ La commande mail a échoué, essai avec Python..." | tee -a "$LOG_FILE"
-        fi
+    # Envoyer la notification via Discord avec le rapport
+    if python3 "$SCRIPT_DIR/send_discord_with_report.py" "$DISCORD_WEBHOOK" "$message" "$title" "$report_path"; then
+        echo "✅ Notification Discord avec rapport envoyée avec succès" | tee -a "$LOG_FILE"
+        return 0
     else
-        echo "⚠️ Commande mail non disponible, essai avec Python..." | tee -a "$LOG_FILE"
+        echo "❌ Échec de l'envoi de la notification Discord avec rapport" | tee -a "$LOG_FILE"
+        return 1
     fi
-    
-    # Méthode 2: Utiliser le script Python avec image
-    if [ ! -f "$SCRIPT_DIR/send_email.py" ]; then
-        create_email_script
-    fi
-    
-    # Exécuter le script Python pour envoyer l'email avec image
-    if python3 "$SCRIPT_DIR/send_email.py" "$EMAIL" "$subject" "$MSG_FILE" "$REPORT_DIR"; then
-        echo "✅ Email envoyé à $EMAIL via le script Python (avec image)" | tee -a "$LOG_FILE"
-    else
-        echo "⚠️ Échec de l'envoi d'email, la notification a été enregistrée dans $REPORT_DIR" | tee -a "$LOG_FILE"
-        # Copier le message dans le répertoire des rapports pour référence
-        cp "$MSG_FILE" "$REPORT_DIR/notification_${DATE}.txt"
-        echo "📝 Notification enregistrée dans: $REPORT_DIR/notification_${DATE}.txt" | tee -a "$LOG_FILE"
-    fi
-    
-    # Nettoyer
-    rm -f "$MSG_FILE"
 }
 
 handle_error() {
@@ -344,7 +313,7 @@ handle_error() {
     
     show_figlet "ERROR"
     echo "❌ ERREUR à l'étape '$step': $error_msg" | tee -a "$LOG_FILE"
-    notify "❌ Erreur processus de données - Étape: $step" "Le processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails."
+    notify_discord_with_report "❌ Erreur processus de données - Étape: $step" "Le processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails." ""
     exit 1
 }
 
@@ -711,7 +680,7 @@ EOF
 generate_summary() {
     show_figlet "Report"
     echo "=== ÉTAPE 3: GÉNÉRATION DU RAPPORT FINAL ===" | tee -a "$LOG_FILE"
-    
+
     # Compter les fichiers
     RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
     PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
@@ -801,173 +770,6 @@ commit_to_git() {
     fi
 }
 
-#!/bin/bash
-
-# Créez ces fonctions à ajouter dans run_all.sh ou à utiliser dans un nouveau script
-
-# Fonction pour créer le script de notification Discord
-create_discord_script() {
-    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord.py"
-    
-    cat > "$DISCORD_SCRIPT" << 'EOF'
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import sys
-import os
-import json
-import requests
-from datetime import datetime
-
-def send_discord_message(webhook_url, message, title=None, image_path=None):
-    """
-    Envoie un message à Discord via un webhook
-    
-    Args:
-        webhook_url (str): URL du webhook Discord
-        message (str): Le message à envoyer
-        title (str, optional): Titre du message (embeds)
-        image_path (str, optional): Chemin vers une image à joindre
-    """
-    # Préparer le payload de base
-    payload = {
-        "content": message,
-        "embeds": []
-    }
-    
-    # Ajouter un embed avec titre si spécifié
-    if title:
-        embed = {
-            "title": title,
-            "description": message,
-            "color": 3447003,  # Bleu Discord
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Si une image est spécifiée et existe
-        if image_path and os.path.exists(image_path):
-            # Pour Discord, nous ne pouvons pas joindre directement un fichier dans un webhook simple
-            # Il faudrait héberger l'image quelque part et utiliser l'URL
-            # On peut mentionner l'image dans le message
-            embed["footer"] = {
-                "text": f"Une image a été générée: {os.path.basename(image_path)}"
-            }
-        
-        payload["embeds"].append(embed)
-    
-    # Envoyer la requête
-    try:
-        response = requests.post(
-            webhook_url,
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"}
-        )
-        
-        if response.status_code == 204:
-            print(f"✅ Message Discord envoyé avec succès!")
-            return True
-        else:
-            print(f"❌ Erreur lors de l'envoi du message Discord: {response.status_code}")
-            print(response.text)
-            return False
-    
-    except Exception as e:
-        print(f"❌ Exception lors de l'envoi du message Discord: {str(e)}")
-        return False
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python3 send_discord.py webhook_url message [title] [image_path]")
-        sys.exit(1)
-    
-    webhook_url = sys.argv[1]
-    message = sys.argv[2]
-    title = sys.argv[3] if len(sys.argv) > 3 else None
-    image_path = sys.argv[4] if len(sys.argv) > 4 else None
-    
-    success = send_discord_message(webhook_url, message, title, image_path)
-    sys.exit(0 if success else 1)
-EOF
-    
-    chmod +x "$DISCORD_SCRIPT"
-    echo "✅ Script d'envoi Discord créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
-}
-
-# Fonction pour envoyer une notification via Discord
-notify_discord() {
-    local title="$1"
-    local message="$2"
-    local image_path="$3"
-    
-    # URL de webhook Discord - REMPLACEZ PAR VOTRE URL DE WEBHOOK
-    local DISCORD_WEBHOOK="https://discord.com/api/webhooks/votre/webhook"
-    
-    echo "🎮 Tentative d'envoi de notification Discord: $title" | tee -a "$LOG_FILE"
-    
-    # Vérifier si le module requests est installé
-    python3 -c "import requests" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "📦 Installation du module requests pour Python..." | tee -a "$LOG_FILE"
-        pip install requests || {
-            echo "❌ Impossible d'installer le module requests. Les notifications Discord ne fonctionneront pas." | tee -a "$LOG_FILE"
-            return 1
-        }
-    fi
-    
-    # Créer le script Discord s'il n'existe pas déjà
-    if [ ! -f "$SCRIPT_DIR/send_discord.py" ]; then
-        create_discord_script
-    fi
-    
-    # Envoyer la notification via Discord
-    if python3 "$SCRIPT_DIR/send_discord.py" "$DISCORD_WEBHOOK" "$message" "$title" "$image_path"; then
-        echo "✅ Notification Discord envoyée avec succès" | tee -a "$LOG_FILE"
-        return 0
-    else
-        echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
-        return 1
-    fi
-}
-
-# Exemple d'utilisation dans le script principal
-send_notification() {
-    show_figlet "Notify"
-    echo "=== ÉTAPE 5: ENVOI DE NOTIFICATION ===" | tee -a "$LOG_FILE"
-    
-    # Compter les fichiers
-    RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
-    PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
-    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*_chart.png" -mtime -1 | wc -l)
-    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
-    
-    # Créer le message de notification
-    NOTIFICATION="
-Le traitement automatique des données du $DATE s'est terminé avec succès.
-
-Résumé:
-- $RAW_COUNT fichiers de données téléchargés
-- $PROCESSED_COUNT fichiers traités générés
-- $CHART_COUNT graphiques générés
-
-Le rapport complet est disponible à: $REPORT_HTML
-"
-    
-    # Trouver une image à joindre éventuellement
-    IMAGE_PATH=""
-    if [ -f "$REPORT_DIR/notification_image_$DATE.png" ]; then
-        IMAGE_PATH="$REPORT_DIR/notification_image_$DATE.png"
-    elif [ -f "$REPORT_DIR/${SOURCE_PREFIX}_chart.png" ]; then
-        # Utiliser le premier graphique si disponible
-        IMAGE_PATH=$(find "$REPORT_DIR" -name "*_chart.png" -mtime -1 | head -1)
-    fi
-    
-    # Envoyer la notification via Discord
-    NOTIFICATION_TITLE="✅ Traitement des données réussi - $DATE"
-    notify_discord "$NOTIFICATION_TITLE" "$NOTIFICATION" "$IMAGE_PATH"
-    
-    echo "🎮 Notification envoyée" | tee -a "$LOG_FILE"
-}
-
 # === 5. NOTIFICATION ===
 send_notification() {
     show_figlet "Notify"
@@ -981,25 +783,19 @@ send_notification() {
     
     # Créer le message de notification
     NOTIFICATION="
-Bonjour,
-
 Le traitement automatique des données du $DATE s'est terminé avec succès.
 
 Résumé:
 - $RAW_COUNT fichiers de données téléchargés
 - $PROCESSED_COUNT fichiers traités générés
 - $CHART_COUNT graphiques générés
-
-Le rapport complet est disponible à: $REPORT_HTML
-
-Cordialement,
-Le système automatisé de traitement de données
 "
     
-    # Envoyer la notification
-    notify "✅ Traitement de données réussi - $DATE" "$NOTIFICATION"
+    # Envoyer la notification Discord avec le rapport HTML
+    NOTIFICATION_TITLE="✅ Traitement des données réussi - $DATE"
+    notify_discord_with_report "$NOTIFICATION_TITLE" "$NOTIFICATION" "$REPORT_HTML"
     
-    echo "📧 Notification envoyée" | tee -a "$LOG_FILE"
+    echo "🎮 Notification avec rapport envoyée" | tee -a "$LOG_FILE"
 }
 
 # === EXÉCUTION PRINCIPALE ===

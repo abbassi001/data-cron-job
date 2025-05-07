@@ -11,9 +11,7 @@ LOG_FILE="$LOG_DIR/download_$DATE.log"
 # Sources de données ouvertes
 # Format: NOM|URL|TYPE_FICHIER
 SOURCES=(
-  "COVID19_FR|https://www.data.gouv.fr/fr/datasets/r/f335f9ea-86e3-4ffa-9684-93c009d5e617|CSV"
   "METEO_FRANCE|https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/donnees-synop-essentielles-omm/exports/csv|CSV"
-  "OPEN_AQ|https://api.openaq.org/v2/latest?limit=100&page=1&offset=0&sort=desc&radius=1000&country=FR&order_by=lastUpdated&dump_raw=false|JSON"
 )
 
 # Créer les répertoires s'ils n'existent pas

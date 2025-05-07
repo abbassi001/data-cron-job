@@ -925,6 +925,76 @@ commit_to_git() {
     fi
 }
 
+
+# Fonction pour envoyer une notification Discord avec graphiques
+send_discord_notification() {
+    local message="$1"
+    
+    echo "🎮 Tentative d'envoi de notification Discord avec rapport et graphique..." | tee -a "$LOG_FILE"
+    
+    # Rechercher les visualisations générées par le script
+    local viz_file=""
+    
+    # D'abord chercher les heatmaps de corrélation (plus informatives)
+    viz_file=$(find "$REPORT_DIR" -name "*_correlation_heatmap.png" -type f -mtime -1 -print | head -n 1)
+    
+    # Si aucune heatmap trouvée, chercher d'autres types de graphiques
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_*_histogram.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_*_timeline.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    if [ -z "$viz_file" ]; then
+        viz_file=$(find "$REPORT_DIR" -name "*_chart.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    # Si toujours aucune visualisation trouvée, chercher dans le répertoire des visualisations
+    if [ -z "$viz_file" ] && [ -d "$VISUALIZATION_DIR" ]; then
+        viz_file=$(find "$VISUALIZATION_DIR" -name "*.png" -type f -mtime -1 -print | head -n 1)
+    fi
+    
+    # Si aucune visualisation trouvée
+    if [ -z "$viz_file" ]; then
+        echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
+        
+        # Envoyer uniquement le message texte
+        curl -s -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" > /dev/null
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Message Discord envoyé avec succès!" | tee -a "$LOG_FILE"
+        else
+            echo "❌ Échec de l'envoi du message Discord" | tee -a "$LOG_FILE"
+            return 1
+        fi
+    else
+        echo "📊 Visualisation trouvée: $viz_file" | tee -a "$LOG_FILE"
+        
+        # Vérifier que le fichier existe et est lisible
+        if [ ! -f "$viz_file" ] || [ ! -r "$viz_file" ]; then
+            echo "⚠️ Le fichier de visualisation n'existe pas ou n'est pas lisible: $viz_file" | tee -a "$LOG_FILE"
+            
+            # Fallback: envoyer uniquement le message texte
+            curl -s -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" > /dev/null
+        else
+            # Envoyer le message avec l'image
+            echo "📤 Envoi du message avec la visualisation..." | tee -a "$LOG_FILE"
+            curl -s -F "payload_json={\"content\":\"$message\"}" -F "file=@$viz_file" "$DISCORD_WEBHOOK" > /dev/null
+            
+            if [ $? -eq 0 ]; then
+                echo "✅ Notification Discord avec rapport et visualisation envoyée avec succès" | tee -a "$LOG_FILE"
+            else
+                echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
+                return 1
+            fi
+        fi
+    fi
+    
+    return 0
+}
+
 # === 5. NOTIFICATION ===
 send_notification() {
     show_figlet "Notify"
@@ -934,23 +1004,26 @@ send_notification() {
     RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
     PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
     CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*.png" -mtime -1 | wc -l)
+    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_avance_$DATE.html" -o -name "rapport_$DATE.html" | head -1)
     
     # Créer le message de notification
-    local MESSAGE="
-✅ Le traitement de données du $DATE s'est terminé avec succès.
+    MESSAGE="
+✅ Traitement de données du $DATE terminé avec succès!
 
-Résumé:
+📊 Résumé:
 - $RAW_COUNT fichiers de données téléchargés
 - $PROCESSED_COUNT fichiers traités générés
-- $CHART_COUNT graphiques générés
-    
-Le rapport complet est disponible dans: $REPORT_DIR
+- $CHART_COUNT graphiques et visualisations créés
+
+Le rapport complet est disponible à : $REPORT_HTML
+
+Ce message inclut l'une des visualisations générées automatiquement.
 "
     
-    # Envoyer notification Discord
-    notify_discord "$MESSAGE" "Traitement de données réussi - $DATE"
+    # Envoyer notification Discord avec une visualisation
+    send_discord_notification "$MESSAGE"
     
-    echo "📧 Notification envoyée" | tee -a "$LOG_FILE"
+    echo "📧 Notification avec visualisation envoyée" | tee -a "$LOG_FILE"
 }
 
 # === EXÉCUTION PRINCIPALE ===

@@ -801,6 +801,173 @@ commit_to_git() {
     fi
 }
 
+#!/bin/bash
+
+# Créez ces fonctions à ajouter dans run_all.sh ou à utiliser dans un nouveau script
+
+# Fonction pour créer le script de notification Discord
+create_discord_script() {
+    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord.py"
+    
+    cat > "$DISCORD_SCRIPT" << 'EOF'
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import json
+import requests
+from datetime import datetime
+
+def send_discord_message(webhook_url, message, title=None, image_path=None):
+    """
+    Envoie un message à Discord via un webhook
+    
+    Args:
+        webhook_url (str): URL du webhook Discord
+        message (str): Le message à envoyer
+        title (str, optional): Titre du message (embeds)
+        image_path (str, optional): Chemin vers une image à joindre
+    """
+    # Préparer le payload de base
+    payload = {
+        "content": message,
+        "embeds": []
+    }
+    
+    # Ajouter un embed avec titre si spécifié
+    if title:
+        embed = {
+            "title": title,
+            "description": message,
+            "color": 3447003,  # Bleu Discord
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Si une image est spécifiée et existe
+        if image_path and os.path.exists(image_path):
+            # Pour Discord, nous ne pouvons pas joindre directement un fichier dans un webhook simple
+            # Il faudrait héberger l'image quelque part et utiliser l'URL
+            # On peut mentionner l'image dans le message
+            embed["footer"] = {
+                "text": f"Une image a été générée: {os.path.basename(image_path)}"
+            }
+        
+        payload["embeds"].append(embed)
+    
+    # Envoyer la requête
+    try:
+        response = requests.post(
+            webhook_url,
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 204:
+            print(f"✅ Message Discord envoyé avec succès!")
+            return True
+        else:
+            print(f"❌ Erreur lors de l'envoi du message Discord: {response.status_code}")
+            print(response.text)
+            return False
+    
+    except Exception as e:
+        print(f"❌ Exception lors de l'envoi du message Discord: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python3 send_discord.py webhook_url message [title] [image_path]")
+        sys.exit(1)
+    
+    webhook_url = sys.argv[1]
+    message = sys.argv[2]
+    title = sys.argv[3] if len(sys.argv) > 3 else None
+    image_path = sys.argv[4] if len(sys.argv) > 4 else None
+    
+    success = send_discord_message(webhook_url, message, title, image_path)
+    sys.exit(0 if success else 1)
+EOF
+    
+    chmod +x "$DISCORD_SCRIPT"
+    echo "✅ Script d'envoi Discord créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
+}
+
+# Fonction pour envoyer une notification via Discord
+notify_discord() {
+    local title="$1"
+    local message="$2"
+    local image_path="$3"
+    
+    # URL de webhook Discord - REMPLACEZ PAR VOTRE URL DE WEBHOOK
+    local DISCORD_WEBHOOK="https://discord.com/api/webhooks/votre/webhook"
+    
+    echo "🎮 Tentative d'envoi de notification Discord: $title" | tee -a "$LOG_FILE"
+    
+    # Vérifier si le module requests est installé
+    python3 -c "import requests" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "📦 Installation du module requests pour Python..." | tee -a "$LOG_FILE"
+        pip install requests || {
+            echo "❌ Impossible d'installer le module requests. Les notifications Discord ne fonctionneront pas." | tee -a "$LOG_FILE"
+            return 1
+        }
+    fi
+    
+    # Créer le script Discord s'il n'existe pas déjà
+    if [ ! -f "$SCRIPT_DIR/send_discord.py" ]; then
+        create_discord_script
+    fi
+    
+    # Envoyer la notification via Discord
+    if python3 "$SCRIPT_DIR/send_discord.py" "$DISCORD_WEBHOOK" "$message" "$title" "$image_path"; then
+        echo "✅ Notification Discord envoyée avec succès" | tee -a "$LOG_FILE"
+        return 0
+    else
+        echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
+        return 1
+    fi
+}
+
+# Exemple d'utilisation dans le script principal
+send_notification() {
+    show_figlet "Notify"
+    echo "=== ÉTAPE 5: ENVOI DE NOTIFICATION ===" | tee -a "$LOG_FILE"
+    
+    # Compter les fichiers
+    RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
+    PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
+    CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*_chart.png" -mtime -1 | wc -l)
+    REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
+    
+    # Créer le message de notification
+    NOTIFICATION="
+Le traitement automatique des données du $DATE s'est terminé avec succès.
+
+Résumé:
+- $RAW_COUNT fichiers de données téléchargés
+- $PROCESSED_COUNT fichiers traités générés
+- $CHART_COUNT graphiques générés
+
+Le rapport complet est disponible à: $REPORT_HTML
+"
+    
+    # Trouver une image à joindre éventuellement
+    IMAGE_PATH=""
+    if [ -f "$REPORT_DIR/notification_image_$DATE.png" ]; then
+        IMAGE_PATH="$REPORT_DIR/notification_image_$DATE.png"
+    elif [ -f "$REPORT_DIR/${SOURCE_PREFIX}_chart.png" ]; then
+        # Utiliser le premier graphique si disponible
+        IMAGE_PATH=$(find "$REPORT_DIR" -name "*_chart.png" -mtime -1 | head -1)
+    fi
+    
+    # Envoyer la notification via Discord
+    NOTIFICATION_TITLE="✅ Traitement des données réussi - $DATE"
+    notify_discord "$NOTIFICATION_TITLE" "$NOTIFICATION" "$IMAGE_PATH"
+    
+    echo "🎮 Notification envoyée" | tee -a "$LOG_FILE"
+}
+
 # === 5. NOTIFICATION ===
 send_notification() {
     show_figlet "Notify"

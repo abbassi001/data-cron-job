@@ -139,89 +139,95 @@ fi
 
 # === FONCTIONS UTILITAIRES ===
 
-# Fonction pour envoyer une notification Discord avec graphiques
+
+# Fonction pour envoyer une notification Discord avec toutes les visualisations générées
 send_discord_notification() {
     local message="$1"
     
-    echo "🎮 Tentative d'envoi de notification Discord..." | tee -a "$LOG_FILE"
+    echo "🎮 Tentative d'envoi de notification Discord avec toutes les visualisations..." | tee -a "$LOG_FILE"
     
-    # Afficher l'URL du webhook pour débogage (en masquant la partie token)
-    WEBHOOK_START=$(echo "$DISCORD_WEBHOOK" | cut -d'/' -f1-6)
-    echo "Using webhook: $WEBHOOK_START/***" | tee -a "$LOG_FILE"
+    # Créer une liste de toutes les images
+    local all_images=()
     
-    # Rechercher les visualisations générées par le script
-    local viz_file=""
+    # Rechercher tous les types d'images et les ajouter à la liste
+    while IFS= read -r img; do
+        all_images+=("$img")
+    done < <(find "$REPORT_DIR" -name "*.png" -type f -mtime -1 | sort)
     
-    # D'abord chercher les heatmaps de corrélation (plus informatives)
-    viz_file=$(find "$REPORT_DIR" -name "*_correlation_heatmap.png" -type f -mtime -1 -print | head -n 1)
+    # Afficher les images trouvées
+    echo "📊 Nombre total d'images trouvées: ${#all_images[@]}" | tee -a "$LOG_FILE"
+    for img in "${all_images[@]}"; do
+        echo "  - $(basename "$img")" | tee -a "$LOG_FILE"
+    done
     
-    # Si aucune heatmap trouvée, chercher d'autres types de graphiques
-    if [ -z "$viz_file" ]; then
-        viz_file=$(find "$REPORT_DIR" -name "*_*_histogram.png" -type f -mtime -1 -print | head -n 1)
-    fi
-    
-    if [ -z "$viz_file" ]; then
-        viz_file=$(find "$REPORT_DIR" -name "*_*_timeline.png" -type f -mtime -1 -print | head -n 1)
-    fi
-    
-    if [ -z "$viz_file" ]; then
-        viz_file=$(find "$REPORT_DIR" -name "*_chart.png" -type f -mtime -1 -print | head -n 1)
-    fi
-    
-    # Sortie de débogage
-    echo "Contenu du répertoire des rapports (images):" | tee -a "$LOG_FILE"
-    find "$REPORT_DIR" -name "*.png" -type f -mtime -1 | tee -a "$LOG_FILE"
-    
-    # Si aucune visualisation trouvée
-    if [ -z "$viz_file" ]; then
-        echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
+    # Si aucune image n'est trouvée
+    if [ ${#all_images[@]} -eq 0 ]; then
+        echo "⚠️ Aucune visualisation trouvée" | tee -a "$LOG_FILE"
         
-        # Méthode simplifiée - envoyer juste le texte sans JSON complexe
-        curl -v -X POST -H "Content-Type: application/json" \
+        # Envoyer juste le texte
+        curl -X POST -H "Content-Type: application/json" \
              -d "{\"content\":\"$message\"}" \
              "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         
         if [ $? -eq 0 ]; then
-            echo "✅ Message Discord envoyé avec succès!" | tee -a "$LOG_FILE"
+            echo "✅ Message Discord (texte uniquement) envoyé avec succès!" | tee -a "$LOG_FILE"
         else
             echo "❌ Échec de l'envoi du message Discord" | tee -a "$LOG_FILE"
         fi
-    else
-        echo "📊 Visualisation trouvée: $viz_file" | tee -a "$LOG_FILE"
         
-        # Vérifier les permissions
-        if [ ! -r "$viz_file" ]; then
-            echo "⚠️ Problème de permissions sur le fichier. Tentative de correction..." | tee -a "$LOG_FILE"
-            chmod +r "$viz_file"
+        return
+    fi
+    
+    # Envoyer d'abord le message texte
+    curl -X POST -H "Content-Type: application/json" \
+         -d "{\"content\":\"$message\"}" \
+         "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
+    
+    # Attendre un peu pour éviter le rate limiting
+    sleep 1
+    
+    # Limiter à 10 images maximum (limite Discord)
+    max_images=10
+    image_count=$(( ${#all_images[@]} < max_images ? ${#all_images[@]} : max_images ))
+    
+    # Envoyer chaque image séparément
+    for (( i=0; i<image_count; i++ )); do
+        img="${all_images[$i]}"
+        
+        # Vérifier que le fichier existe et est lisible
+        if [ ! -f "$img" ] || [ ! -r "$img" ]; then
+            echo "⚠️ Le fichier $img n'existe pas ou n'est pas lisible. Ignoré." | tee -a "$LOG_FILE"
+            continue
         fi
         
         # Taille du fichier
-        file_size=$(du -h "$viz_file" | cut -f1)
-        echo "Taille du fichier image: $file_size" | tee -a "$LOG_FILE"
+        file_size=$(du -h "$img" | cut -f1)
+        img_name=$(basename "$img")
         
-        # Méthode simplifiée pour les fichiers - utiliser curl avec form
-        # Diviser en deux requêtes distinctes pour éviter les problèmes de JSON invalide
+        echo "📤 Envoi de l'image $((i+1))/$image_count: $img_name ($file_size)" | tee -a "$LOG_FILE"
         
-        # 1. Envoyer d'abord le message texte
-        curl -v -X POST -H "Content-Type: application/json" \
-             -d "{\"content\":\"$message\"}" \
+        # Ajouter un petit message pour chaque image
+        img_desc="Visualisation: $img_name"
+        
+        # Envoyer l'image avec un petit message descriptif
+        curl -X POST -F "payload_json={\"content\":\"$img_desc\"}" \
+             -F "file=@$img" \
              "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         
-        # Petite pause pour éviter le rate limiting
-        sleep 1
-        
-        # 2. Envoyer ensuite l'image dans un message séparé
-        echo "Envoi de l'image..." | tee -a "$LOG_FILE"
-        curl -v -F "file=@$viz_file" \
-             "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
-        
-        if [ $? -eq 0 ]; then
-            echo "✅ Notification Discord avec image envoyée avec succès" | tee -a "$LOG_FILE"
+        # Vérifier le résultat
+        if [ $? -ne 0 ]; then
+            echo "⚠️ Problème lors de l'envoi de l'image $img_name" | tee -a "$LOG_FILE"
         else
-            echo "❌ Échec de l'envoi de l'image Discord" | tee -a "$LOG_FILE"
+            echo "✅ Image $img_name envoyée avec succès" | tee -a "$LOG_FILE"
         fi
-    fi
+        
+        # Pause entre les envois pour éviter le rate limiting
+        sleep 2
+    done
+    
+    echo "✅ Notification Discord avec $image_count visualisations envoyée avec succès" | tee -a "$LOG_FILE"
 }
+
 # Fonction pour gérer les erreurs et envoyer des notifications
 handle_error() {
     local step="$1"

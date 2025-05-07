@@ -138,11 +138,16 @@ else
 fi
 
 # === FONCTIONS UTILITAIRES ===
+
 # Fonction pour envoyer une notification Discord avec graphiques
 send_discord_notification() {
     local message="$1"
     
     echo "🎮 Tentative d'envoi de notification Discord..." | tee -a "$LOG_FILE"
+    
+    # Afficher l'URL du webhook pour débogage (en masquant la partie token)
+    WEBHOOK_START=$(echo "$DISCORD_WEBHOOK" | cut -d'/' -f1-6)
+    echo "Using webhook: $WEBHOOK_START/***" | tee -a "$LOG_FILE"
     
     # Rechercher les visualisations générées par le script
     local viz_file=""
@@ -163,46 +168,60 @@ send_discord_notification() {
         viz_file=$(find "$REPORT_DIR" -name "*_chart.png" -type f -mtime -1 -print | head -n 1)
     fi
     
-    # Afficher le contenu du répertoire pour débogage
-    echo "Contenu du répertoire des rapports:" | tee -a "$LOG_FILE"
-    ls -la "$REPORT_DIR" | tee -a "$LOG_FILE"
+    # Sortie de débogage
+    echo "Contenu du répertoire des rapports (images):" | tee -a "$LOG_FILE"
+    find "$REPORT_DIR" -name "*.png" -type f -mtime -1 | tee -a "$LOG_FILE"
     
     # Si aucune visualisation trouvée
     if [ -z "$viz_file" ]; then
         echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
         
-        # Formatter le JSON correctement avec des guillemets échappés
-        json_payload="{\"content\":\"$message\"}"
-        
-        # Envoyer uniquement le message texte
-        curl -s -H "Content-Type: application/json" -d "$json_payload" "$DISCORD_WEBHOOK" > /dev/null
+        # Méthode simplifiée - envoyer juste le texte sans JSON complexe
+        curl -v -X POST -H "Content-Type: application/json" \
+             -d "{\"content\":\"$message\"}" \
+             "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         
         if [ $? -eq 0 ]; then
             echo "✅ Message Discord envoyé avec succès!" | tee -a "$LOG_FILE"
         else
             echo "❌ Échec de l'envoi du message Discord" | tee -a "$LOG_FILE"
-            return 1
         fi
     else
         echo "📊 Visualisation trouvée: $viz_file" | tee -a "$LOG_FILE"
         
-        # Formatter le JSON correctement et l'échapper
-        json_content=$(echo "{\"content\":\"$message\"}" | sed 's/"/\\"/g')
+        # Vérifier les permissions
+        if [ ! -r "$viz_file" ]; then
+            echo "⚠️ Problème de permissions sur le fichier. Tentative de correction..." | tee -a "$LOG_FILE"
+            chmod +r "$viz_file"
+        fi
         
-        # Envoyer le message avec l'image
-        curl -s -F "payload_json=$json_content" -F "file=@$viz_file" "$DISCORD_WEBHOOK" > /dev/null
+        # Taille du fichier
+        file_size=$(du -h "$viz_file" | cut -f1)
+        echo "Taille du fichier image: $file_size" | tee -a "$LOG_FILE"
+        
+        # Méthode simplifiée pour les fichiers - utiliser curl avec form
+        # Diviser en deux requêtes distinctes pour éviter les problèmes de JSON invalide
+        
+        # 1. Envoyer d'abord le message texte
+        curl -v -X POST -H "Content-Type: application/json" \
+             -d "{\"content\":\"$message\"}" \
+             "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
+        
+        # Petite pause pour éviter le rate limiting
+        sleep 1
+        
+        # 2. Envoyer ensuite l'image dans un message séparé
+        echo "Envoi de l'image..." | tee -a "$LOG_FILE"
+        curl -v -F "file=@$viz_file" \
+             "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         
         if [ $? -eq 0 ]; then
-            echo "✅ Notification Discord avec rapport et visualisation envoyée avec succès" | tee -a "$LOG_FILE"
+            echo "✅ Notification Discord avec image envoyée avec succès" | tee -a "$LOG_FILE"
         else
-            echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
-            return 1
+            echo "❌ Échec de l'envoi de l'image Discord" | tee -a "$LOG_FILE"
         fi
     fi
-    
-    return 0
 }
-
 # Fonction pour gérer les erreurs et envoyer des notifications
 handle_error() {
     local step="$1"

@@ -15,7 +15,7 @@ DATA_DIR="$PROJECT_DIR/data"
 LOG_DIR="$PROJECT_DIR/logs"
 DATE=$(date +%Y-%m-%d)
 LOG_FILE="$LOG_DIR/job_$DATE.log"
-EMAIL="votre.email@example.com" # À modifier
+EMAIL="abbassiadamou55@gmail.com" # À modifier
 GIT_BRANCH="data-updates"
 WEBHOOK_URL="" # Optionnel, pour les notifications
 

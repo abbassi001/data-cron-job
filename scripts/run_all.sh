@@ -925,12 +925,11 @@ commit_to_git() {
     fi
 }
 
-
 # Fonction pour envoyer une notification Discord avec graphiques
 send_discord_notification() {
     local message="$1"
     
-    echo "🎮 Tentative d'envoi de notification Discord avec rapport et graphique..." | tee -a "$LOG_FILE"
+    echo "🎮 Tentative d'envoi de notification Discord..." | tee -a "$LOG_FILE"
     
     # Rechercher les visualisations générées par le script
     local viz_file=""
@@ -956,12 +955,22 @@ send_discord_notification() {
         viz_file=$(find "$VISUALIZATION_DIR" -name "*.png" -type f -mtime -1 -print | head -n 1)
     fi
     
+    # Afficher le contenu des répertoires pour débogage
+    echo "Contenu du répertoire des rapports:" | tee -a "$LOG_FILE"
+    ls -la "$REPORT_DIR" | tee -a "$LOG_FILE"
+    
+    if [ -d "$VISUALIZATION_DIR" ]; then
+        echo "Contenu du répertoire des visualisations:" | tee -a "$LOG_FILE"
+        ls -la "$VISUALIZATION_DIR" | tee -a "$LOG_FILE"
+    fi
+    
     # Si aucune visualisation trouvée
     if [ -z "$viz_file" ]; then
         echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
         
         # Envoyer uniquement le message texte
-        curl -s -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" > /dev/null
+        echo "Envoi du message texte uniquement..." | tee -a "$LOG_FILE"
+        curl -v -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         
         if [ $? -eq 0 ]; then
             echo "✅ Message Discord envoyé avec succès!" | tee -a "$LOG_FILE"
@@ -977,11 +986,11 @@ send_discord_notification() {
             echo "⚠️ Le fichier de visualisation n'existe pas ou n'est pas lisible: $viz_file" | tee -a "$LOG_FILE"
             
             # Fallback: envoyer uniquement le message texte
-            curl -s -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" > /dev/null
+            curl -v -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
         else
-            # Envoyer le message avec l'image
-            echo "📤 Envoi du message avec la visualisation..." | tee -a "$LOG_FILE"
-            curl -s -F "payload_json={\"content\":\"$message\"}" -F "file=@$viz_file" "$DISCORD_WEBHOOK" > /dev/null
+            # Envoyer le message avec l'image en mode verbeux pour voir les erreurs
+            echo "📤 Envoi du message avec la visualisation: $viz_file" | tee -a "$LOG_FILE"
+            curl -v -F "payload_json={\"content\":\"$message\"}" -F "file=@$viz_file" "$DISCORD_WEBHOOK" 2>&1 | tee -a "$LOG_FILE"
             
             if [ $? -eq 0 ]; then
                 echo "✅ Notification Discord avec rapport et visualisation envoyée avec succès" | tee -a "$LOG_FILE"

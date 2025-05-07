@@ -1,160 +1,165 @@
-# Projet Cron Job avec Open Data et Git
+# Système Automatisé de Traitement de Données Ouvertes
 
-Ce projet implémente un système automatisé de récupération et d'analyse de données ouvertes, avec versionnement Git intégré.
+Un outil tout-en-un pour télécharger, traiter et analyser des données ouvertes avec versionnement Git et notifications Discord.
 
-## 🚀 Fonctionnalités
+## 🚀 Vue d'ensemble
 
-- **Récupération automatique** de données depuis plusieurs fournisseurs d'Open Data
-- **Traitement et analyse** des données avec Python
-- **Génération de rapports** et visualisations
-- **Versionnement Git** intégré pour suivre l'évolution des données
-- **Historique des métadonnées** pour assurer la traçabilité
-- **Système de notification** par email et webhooks
-- **Journalisation complète** pour faciliter le débogage
+Ce projet fournit un système automatisé qui :
+
+1. **Télécharge** des données depuis plusieurs sources d'Open Data
+2. **Traite et analyse** ces données avec Python (pandas, matplotlib)
+3. **Génère des rapports HTML** et des visualisations
+4. **Versionne** les résultats avec Git
+5. **Envoie des notifications** via Discord avec images intégrées
+
+Parfait pour créer un tableau de bord de données actualisé régulièrement avec un minimum d'intervention manuelle.
+
+## 💡 Caractéristiques principales
+
+- **Script tout-en-un** qui orchestre l'ensemble du processus
+- **Téléchargement robuste** avec gestion des erreurs et retry
+- **Traitement flexible** qui s'adapte automatiquement au format des données
+- **Visualisations** générées automatiquement
+- **Notifications riches** via Discord incluant graphiques et rapports
+- **Versionning Git** pour suivre l'évolution des données
+- **Interface visuelle** avec bannières Figlet pour une meilleure lisibilité
 
 ## 📋 Prérequis
 
-- Git
-- Python 3.8+
-- Bash
-- Accès à internet pour télécharger les données
-- Droit d'exécution de cron (pour l'automatisation)
+- **Python 3.6+**
+- **Git** (optionnel, pour le versionning)
+- **Bibliothèques Python** : pandas, matplotlib, requests
+- **Figlet** (optionnel, pour l'affichage)
+- **Compte Discord** et webhook (pour les notifications)
 
-## 🔧 Installation
+## 🛠️ Installation
 
 1. **Cloner ce dépôt :**
    ```bash
-   git clone https://github.com/votre-utilisateur/data-cron-job.git
-   cd data-cron-job
+   git clone <URL_DU_REPO>
+   cd data-process-system
    ```
 
-2. **Créer la structure de répertoires :**
+2. **Installer les dépendances :**
+   ```bash
+   pip install pandas matplotlib requests
+   sudo apt-get install figlet  # Optionnel, pour les bannières
+   ```
+
+3. **Configurer les notifications Discord :**
+   - Créer un webhook dans votre serveur Discord
+   - Copier l'URL du webhook
+   - Mettre à jour la variable `DISCORD_WEBHOOK` dans `run_all.sh`
+
+4. **Créer la structure de dossiers :**
    ```bash
    mkdir -p data/raw data/processed data/reports logs
    ```
 
-3. **Installer les dépendances Python :**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Rendre les scripts exécutables :**
-   ```bash
-   chmod +x scripts/*.sh
-   ```
-
-5. **Configurer les paramètres :**
-   - Modifier l'adresse email dans `scripts/run_data_job.sh`
-   - Personnaliser les sources de données dans `scripts/download_data.sh`
-
 ## 📊 Sources de données
 
-Les données sont récupérées des sources ouvertes suivantes :
+Le système télécharge actuellement des données depuis :
 
-1. **COVID19_FR** - Données Covid-19 en France 
-   - Source : data.gouv.fr
+- **METEO_FRANCE** - Données météorologiques (via OpenDataSoft)
+- **OPEN_METEO** - Données climatiques historiques de Paris
+- **DONNEES_ECO** - Données économiques (via data.gouv.fr)
 
-2. **METEO_FRANCE** - Données météorologiques essentielles
-   - Source : opendatasoft.com
+Vous pouvez facilement ajouter ou modifier ces sources en éditant la section `SOURCES` dans le script `run_all.sh`.
 
-3. **OPEN_AQ** - Qualité de l'air en France
-   - Source : openaq.org
-
-## 💻 Utilisation
+## 🖥️ Utilisation
 
 ### Exécution manuelle
 
-Pour lancer le job complet manuellement :
-
 ```bash
-./scripts/run_data_job.sh
+# Rendre le script exécutable
+chmod +x scripts/run_all.sh
+
+# Lancer le processus complet
+./scripts/run_all.sh
 ```
 
-Pour exécuter une étape spécifique :
+### Automatisation avec Cron
+
+Pour exécuter le script tous les jours à 2h du matin :
 
 ```bash
-# Téléchargement seul
-./scripts/download_data.sh
-
-# Traitement seul
-python3 scripts/process_data.py
-```
-
-### Configuration Cron
-
-Pour automatiser l'exécution, ajoutez une entrée cron :
-
-```bash
-# Éditer la crontab
+# Ouvrir la configuration cron
 crontab -e
 
-# Ajouter la ligne suivante pour une exécution quotidienne à 3h du matin
-0 3 * * * /chemin/absolu/vers/data-cron-job/scripts/run_data_job.sh
+# Ajouter cette ligne (ajustez le chemin)
+0 2 * * * /chemin/vers/scripts/run_all.sh
 ```
 
-## 📁 Structure du projet
+## 📊 Résultats générés
+
+Après exécution, vous trouverez :
+
+- **Fichiers bruts** dans `data/raw/`
+- **Données traitées** dans `data/processed/`
+- **Rapports et graphiques** dans `data/reports/`
+- **Logs** dans `logs/`
+- **Notification Discord** avec un résumé et un graphique
+
+## 🧩 Structure du projet
 
 ```
-data-cron-job/
-├── data/
-│   ├── raw/         # Données brutes téléchargées
-│   ├── processed/   # Données traitées
-│   └── reports/     # Rapports et visualisations
-├── logs/            # Journaux d'exécution
+projet/
 ├── scripts/
-│   ├── download_data.sh    # Script de téléchargement
-│   ├── process_data.py     # Script de traitement
-│   └── run_data_job.sh     # Script principal
-├── .gitignore
-├── README.md
-└── requirements.txt
+│   ├── run_all.sh              # Script principal orchestrateur
+│   ├── send_discord_with_charts.py    # Script d'envoi Discord (généré auto)
+│   └── temp_process_data.py    # Script temporaire de traitement
+├── data/
+│   ├── raw/                    # Données brutes téléchargées
+│   ├── processed/              # Données analysées et nettoyées
+│   └── reports/                # Rapports HTML et visualisations
+├── logs/                       # Journaux d'exécution
+└── README.md                   # Documentation
 ```
 
-## 🔄 Workflow Git
+## ⚙️ Comment ça marche
 
-Le projet utilise Git pour versionner les métadonnées et les résultats d'analyse :
+Le script `run_all.sh` orchestre les étapes suivantes :
 
-1. Une branche dédiée `data-updates` est utilisée pour les mises à jour de données
-2. Les données brutes volumineuses ne sont pas versionnées (voir `.gitignore`)
-3. Les fichiers de métadonnées (`.meta` et `.sha256`) sont versionnés pour assurer la traçabilité
-4. Les rapports générés et les données traitées sont versionnés
-5. Chaque exécution du job crée un commit daté
+1. **Vérification de l'environnement** - S'assure que toutes les dépendances sont installées
+2. **Configuration Git** - Prépare le versionning (si Git est disponible)
+3. **Téléchargement des données** - Récupère les données depuis les sources configurées
+4. **Traitement des données** - Nettoie, analyse et génère des statistiques
+5. **Génération de rapports** - Crée un rapport HTML et des graphiques
+6. **Versionning Git** - Enregistre les modifications (si Git est disponible)
+7. **Notifications** - Envoie un résumé et un graphique sur Discord
 
-## 🔍 Suivi et supervision
-
-Le système génère différents types de journaux :
-
-- **Logs d'exécution** : Dans le répertoire `logs/`
-- **Métadonnées des fichiers** : Fichiers `.meta` associés aux données brutes
-- **Empreintes SHA256** : Fichiers `.sha256` pour vérifier l'intégrité des données
-- **Rapports de traitement** : Dans `data/reports/`
+Chaque étape est clairement indiquée par des bannières Figlet et des logs détaillés sont générés.
 
 ## 🔄 Personnalisation
 
-Vous pouvez facilement adapter ce projet :
+### Ajouter une nouvelle source de données
 
-1. **Ajouter de nouvelles sources** : Modifiez la variable `SOURCES` dans `download_data.sh`
-2. **Modifier le traitement** : Adaptez les fonctions dans `process_data.py`
-3. **Changer la fréquence** : Modifiez l'entrée cron
-4. **Ajouter des intégrations** : Complétez le système de notification dans `run_data_job.sh`
+Modifiez la section `SOURCES` dans `run_all.sh` :
+
+```bash
+SOURCES=(
+    "NOM|URL|TYPE_FICHIER"
+    # Par exemple :
+    "NOUVELLE_SOURCE|https://example.com/data.csv|CSV"
+)
+```
+
+### Modifier le traitement des données
+
+Le script Python de traitement est généré dynamiquement. Vous pouvez personnaliser la fonction `process_csv` pour modifier le traitement.
+
+### Changer le format de notification
+
+Pour modifier l'apparence des notifications Discord, ajustez la fonction `notify_discord_with_charts`.
 
 ## 🤝 Contribution
 
-Les contributions sont bienvenues ! Pour contribuer :
+Les contributions sont les bienvenues ! Pour contribuer :
 
-1. Forkez le projet
+1. Forkez ce dépôt
 2. Créez une branche pour votre fonctionnalité
-3. Committez vos changements
-4. Soumettez une Pull Request
+3. Soumettez une pull request
 
 ## 📜 Licence
 
 Ce projet est sous licence MIT.
-
-## ✨ Inspirations et ressources
-
-- [Data.gouv.fr](https://www.data.gouv.fr/) - Plateforme de données ouvertes française
-- [OpenDataSoft](https://public.opendatasoft.com/) - Plateforme de données ouvertes
-- [OpenAQ](https://openaq.org/) - Données sur la qualité de l'air
-- [Git Data Workflows](https://www.atlassian.com/git/tutorials/git-data-workflows) - Bonnes pratiques pour versionner des données
-- [Pandas Documentation](https://pandas.pydata.org/docs/) - Documentation pour l'analyse de données

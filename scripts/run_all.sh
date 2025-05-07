@@ -716,6 +716,43 @@ notify_discord_with_charts() {
     fi
 }
 
+send_discord_notification() {
+    local message="$1"
+    local webhook_url="VOTRE_WEBHOOK_URL" # Remplacer par votre URL de webhook Discord
+    
+    echo "🎮 Tentative d'envoi de notification Discord avec rapport et graphique: $message" | tee -a "$LOG_FILE"
+    
+    # Rechercher tous les types de visualisations
+    local visualizations=(
+        $(find "$REPORT_DIR" -name "*_correlation_heatmap.png" -type f -mtime -1 -print)
+        $(find "$REPORT_DIR" -name "*_*_histogram.png" -type f -mtime -1 -print)
+        $(find "$REPORT_DIR" -name "*_*_timeline.png" -type f -mtime -1 -print)
+        $(find "$REPORT_DIR" -name "*_*_boxplot.png" -type f -mtime -1 -print)
+        $(find "$REPORT_DIR" -name "*_chart.png" -type f -mtime -1 -print)
+    )
+    
+    # Vérifier si des visualisations ont été trouvées
+    if [ ${#visualizations[@]} -eq 0 ]; then
+        echo "⚠️ Aucune visualisation récente trouvée" | tee -a "$LOG_FILE"
+        
+        # Envoyer uniquement le message texte
+        curl -s -H "Content-Type: application/json" -d "{\"content\":\"$message\"}" "$webhook_url" > /dev/null
+    else
+        # Prendre la première visualisation trouvée
+        local viz_file="${visualizations[0]}"
+        echo "📊 Visualisation trouvée: $viz_file" | tee -a "$LOG_FILE"
+        
+        # Envoyer le message avec l'image
+        curl -s -F "payload_json={\"content\":\"$message\"}" -F "file=@$viz_file" "$webhook_url" > /dev/null
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Notification Discord avec rapport et visualisation envoyée avec succès" | tee -a "$LOG_FILE"
+    else
+        echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
+    fi
+}
+
 handle_error() {
     local step="$1"
     local error_msg="$2"

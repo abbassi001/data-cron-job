@@ -9,7 +9,7 @@
 # 3. Traitement et analyse des données
 # 4. Génération de rapports
 # 5. Versionning Git
-# 6. Envoi de notifications Discord avec rapport
+# 6. Envoi de notifications Discord avec rapport et graphiques
 # ============================================================
 
 # Fonction pour afficher un texte en figlet si disponible
@@ -134,9 +134,9 @@ if ! command -v figlet &> /dev/null; then
 fi
 
 # === FONCTIONS UTILITAIRES ===
-# Script Python pour envoyer des notifications Discord avec rapport
-create_discord_report_script() {
-    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord_with_report.py"
+# Script Python pour envoyer des notifications Discord avec graphiques
+create_discord_charts_script() {
+    local DISCORD_SCRIPT="$SCRIPT_DIR/send_discord_with_charts.py"
     
     cat > "$DISCORD_SCRIPT" << 'EOF'
 #!/usr/bin/env python3
@@ -147,6 +147,7 @@ import os
 import json
 import requests
 from datetime import datetime
+from glob import glob
 
 def read_report_content(report_path):
     """
@@ -204,7 +205,48 @@ def read_report_content(report_path):
         print(f"⚠️ Erreur lors de la lecture du rapport: {str(e)}")
         return "Rapport HTML généré, mais impossible d'extraire le contenu."
 
-def send_discord_message(webhook_url, message, title=None, report_path=None):
+def find_charts(report_dir, date_str):
+    """
+    Recherche les graphiques générés dans le répertoire des rapports
+    """
+    # Recherche les fichiers PNG qui contiennent "chart" dans le nom
+    charts = glob(os.path.join(report_dir, "*_chart.png"))
+    
+    # Filtrer par date si nécessaire
+    if date_str:
+        today_charts = [c for c in charts if os.path.getmtime(c) > (datetime.now().timestamp() - 86400)]
+        if today_charts:
+            return today_charts
+    
+    return charts
+
+def upload_image_to_discord(webhook_url, image_path):
+    """
+    Télécharge une image sur Discord en utilisant le webhook
+    """
+    try:
+        print(f"📤 Tentative d'envoi de l'image {image_path} vers Discord...")
+        
+        with open(image_path, 'rb') as img:
+            # Utiliser la partie file pour envoyer l'image
+            files = {'file': (os.path.basename(image_path), img, 'image/png')}
+            
+            response = requests.post(webhook_url, files=files)
+            
+        if response.status_code == 200:
+            print(f"✅ Image {os.path.basename(image_path)} envoyée avec succès!")
+            image_url = response.json().get('attachments', [{}])[0].get('url', '')
+            return image_url
+        else:
+            print(f"❌ Échec de l'envoi de l'image: {response.status_code}")
+            print(response.text)
+            return None
+    
+    except Exception as e:
+        print(f"❌ Exception lors de l'envoi de l'image: {str(e)}")
+        return None
+
+def send_discord_message(webhook_url, message, title=None, report_path=None, chart_path=None):
     """
     Envoie un message à Discord via un webhook, avec un résumé du rapport si disponible
     
@@ -213,7 +255,16 @@ def send_discord_message(webhook_url, message, title=None, report_path=None):
         message (str): Le message à envoyer
         title (str, optional): Titre du message (embeds)
         report_path (str, optional): Chemin vers le rapport HTML
+        chart_path (str, optional): Chemin vers un graphique à inclure
     """
+    # Tenter d'abord d'envoyer l'image si spécifiée
+    image_url = None
+    if chart_path and os.path.exists(chart_path):
+        try:
+            image_url = upload_image_to_discord(webhook_url, chart_path)
+        except Exception as e:
+            print(f"⚠️ Impossible d'envoyer l'image: {str(e)}")
+    
     # Préparer le payload de base
     payload = {
         "content": message,
@@ -244,6 +295,12 @@ def send_discord_message(webhook_url, message, title=None, report_path=None):
                 "text": f"Rapport complet: {os.path.basename(report_path)}"
             }
         
+        # Si on a une URL d'image, l'ajouter à l'embed
+        if image_url:
+            embed["image"] = {
+                "url": image_url
+            }
+        
         payload["embeds"].append(embed)
     
     # Envoyer la requête
@@ -268,41 +325,63 @@ def send_discord_message(webhook_url, message, title=None, report_path=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python3 send_discord_with_report.py webhook_url message [title] [report_path]")
+        print("Usage: python3 send_discord_with_charts.py webhook_url message [title] [report_path] [chart_path]")
         sys.exit(1)
     
     webhook_url = sys.argv[1]
     message = sys.argv[2]
     title = sys.argv[3] if len(sys.argv) > 3 else None
     report_path = sys.argv[4] if len(sys.argv) > 4 else None
+    chart_path = sys.argv[5] if len(sys.argv) > 5 else None
     
-    success = send_discord_message(webhook_url, message, title, report_path)
+    # Si aucun graphique n'est spécifié mais qu'on a un répertoire de rapport,
+    # chercher automatiquement le premier graphique disponible
+    if not chart_path and report_path:
+        report_dir = os.path.dirname(report_path)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        charts = find_charts(report_dir, date_str)
+        if charts:
+            chart_path = charts[0]
+            print(f"🔍 Graphique trouvé automatiquement: {chart_path}")
+    
+    success = send_discord_message(webhook_url, message, title, report_path, chart_path)
     sys.exit(0 if success else 1)
 EOF
     
     chmod +x "$DISCORD_SCRIPT"
-    echo "✅ Script d'envoi Discord avec rapport créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
+    echo "✅ Script d'envoi Discord avec graphiques créé: $DISCORD_SCRIPT" | tee -a "$LOG_FILE"
 }
 
-# Fonction pour envoyer une notification Discord avec rapport
-notify_discord_with_report() {
+# Fonction pour envoyer une notification Discord avec rapport et graphique
+notify_discord_with_charts() {
     local title="$1"
     local message="$2"
     local report_path="$3"
     
-    echo "🎮 Tentative d'envoi de notification Discord avec rapport: $title" | tee -a "$LOG_FILE"
+    echo "🎮 Tentative d'envoi de notification Discord avec rapport et graphique: $title" | tee -a "$LOG_FILE"
     
     # Créer le script Discord s'il n'existe pas déjà
-    if [ ! -f "$SCRIPT_DIR/send_discord_with_report.py" ]; then
-        create_discord_report_script
+    if [ ! -f "$SCRIPT_DIR/send_discord_with_charts.py" ]; then
+        create_discord_charts_script
     fi
     
-    # Envoyer la notification via Discord avec le rapport
-    if python3 "$SCRIPT_DIR/send_discord_with_report.py" "$DISCORD_WEBHOOK" "$message" "$title" "$report_path"; then
-        echo "✅ Notification Discord avec rapport envoyée avec succès" | tee -a "$LOG_FILE"
+    # Rechercher un graphique à inclure
+    CHART_PATH=""
+    if [ -d "$REPORT_DIR" ]; then
+        CHART_PATH=$(find "$REPORT_DIR" -name "*_chart.png" -mtime -1 | head -1)
+        if [ -n "$CHART_PATH" ]; then
+            echo "🔍 Graphique trouvé pour l'envoi: $CHART_PATH" | tee -a "$LOG_FILE"
+        else
+            echo "⚠️ Aucun graphique récent trouvé" | tee -a "$LOG_FILE"
+        fi
+    fi
+    
+    # Envoyer la notification via Discord avec le rapport et le graphique
+    if python3 "$SCRIPT_DIR/send_discord_with_charts.py" "$DISCORD_WEBHOOK" "$message" "$title" "$report_path" "$CHART_PATH"; then
+        echo "✅ Notification Discord avec rapport et graphique envoyée avec succès" | tee -a "$LOG_FILE"
         return 0
     else
-        echo "❌ Échec de l'envoi de la notification Discord avec rapport" | tee -a "$LOG_FILE"
+        echo "❌ Échec de l'envoi de la notification Discord" | tee -a "$LOG_FILE"
         return 1
     fi
 }
@@ -313,7 +392,7 @@ handle_error() {
     
     show_figlet "ERROR"
     echo "❌ ERREUR à l'étape '$step': $error_msg" | tee -a "$LOG_FILE"
-    notify_discord_with_report "❌ Erreur processus de données - Étape: $step" "Le processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails." ""
+    notify_discord_with_charts "❌ Erreur processus de données - Étape: $step" "Le processus a échoué à l'étape '$step': $error_msg. Voir $LOG_FILE pour plus de détails." ""
     exit 1
 }
 
@@ -374,7 +453,7 @@ download_data() {
         echo "⏳ Téléchargement de $NAME depuis $URL" | tee -a "$LOG_FILE"
         
         OUTPUT_FILE="$RAW_DIR/${NAME}_${DATE}.${TYPE,,}"
-        
+
         # Télécharger avec timeout et retry
         if curl -s -L --retry 3 --max-time 30 -o "$OUTPUT_FILE" "$URL"; then
             # Vérifier si le fichier est vide
@@ -680,7 +759,7 @@ EOF
 generate_summary() {
     show_figlet "Report"
     echo "=== ÉTAPE 3: GÉNÉRATION DU RAPPORT FINAL ===" | tee -a "$LOG_FILE"
-
+    
     # Compter les fichiers
     RAW_COUNT=$(find "$RAW_DIR" -type f -name "*.$DATE.*" | wc -l)
     PROCESSED_COUNT=$(find "$PROCESSED_DIR" -type f -mtime -1 | wc -l)
@@ -781,6 +860,17 @@ send_notification() {
     CHART_COUNT=$(find "$REPORT_DIR" -type f -name "*_chart.png" -mtime -1 | wc -l)
     REPORT_HTML=$(find "$REPORT_DIR" -name "rapport_$DATE.html")
     
+    # Rechercher un graphique à inclure
+    CHART_PATH=""
+    if [ -d "$REPORT_DIR" ]; then
+        CHART_PATH=$(find "$REPORT_DIR" -name "*_chart.png" -mtime -1 | head -1)
+        if [ -n "$CHART_PATH" ]; then
+            echo "🔍 Graphique trouvé pour l'envoi: $CHART_PATH" | tee -a "$LOG_FILE"
+        else
+            echo "⚠️ Aucun graphique récent trouvé" | tee -a "$LOG_FILE"
+        fi
+    fi
+    
     # Créer le message de notification
     NOTIFICATION="
 Le traitement automatique des données du $DATE s'est terminé avec succès.
@@ -791,11 +881,11 @@ Résumé:
 - $CHART_COUNT graphiques générés
 "
     
-    # Envoyer la notification Discord avec le rapport HTML
+    # Envoyer la notification Discord avec le rapport HTML et le graphique
     NOTIFICATION_TITLE="✅ Traitement des données réussi - $DATE"
-    notify_discord_with_report "$NOTIFICATION_TITLE" "$NOTIFICATION" "$REPORT_HTML"
+    notify_discord_with_charts "$NOTIFICATION_TITLE" "$NOTIFICATION" "$REPORT_HTML"
     
-    echo "🎮 Notification avec rapport envoyée" | tee -a "$LOG_FILE"
+    echo "🎮 Notification avec rapport et graphique envoyée" | tee -a "$LOG_FILE"
 }
 
 # === EXÉCUTION PRINCIPALE ===

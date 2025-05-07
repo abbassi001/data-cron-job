@@ -183,8 +183,8 @@ def process_csv(file_path, output_prefix, max_rows=None):
         # Pour les fichiers volumineux, limiter le nombre de lignes ou utiliser chunks
         if file_size_mb > 500 and max_rows is None:
 
-        logger.warning(f"Le fichier est très volumineux ({file_size_mb:.2f} MB), limitation à 1 million de lignes")
-            max_rows = 1000000
+           logger.warning(f"Le fichier est très volumineux ({file_size_mb:.2f} MB), limitation à 1 million de lignes")
+           max_rows = 1000000
         
         # Si le fichier est immense, utiliser un traitement par morceaux
         if file_size_mb > 1000:  # Plus de 1 GB
